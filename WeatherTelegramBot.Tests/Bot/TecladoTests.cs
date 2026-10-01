@@ -25,7 +25,7 @@ public class TextoClimaTests
                 precipitacion: "0",
                 elaborado: "12/09/2025 10:00"));
 
-        var texto = await bot.Bot.ObtenerTiempoAsync(default);
+        var texto = await bot.Bot.ObtenerTiempoAsync("41", "41004", default);
 
         Assert.Contains("**El tiempo en Alcalá de Guadaíra** (Sevilla)", texto);
         Assert.Contains("Estado: Despejado", texto);
@@ -42,20 +42,162 @@ public class TextoClimaTests
         bot.Clima.ObtenerTiempoPorMunicipioAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns((Responses.TiempoResponse?)null);
 
-        var texto = await bot.Bot.ObtenerTiempoAsync(default);
+        var texto = await bot.Bot.ObtenerTiempoAsync("41", "41004", default);
 
         Assert.Contains("No se pudo obtener la información", texto);
     }
 
-    /// <summary>El bot solo da servicio en Alcalá, así que consulta siempre ese código.</summary>
+    /// <summary>
+    /// El municipio se decide en la sobrecarga sin argumentos, así que aquí se comprueba que
+    /// el render pide exactamente el que se le pasa.
+    /// </summary>
     [Fact]
-    public async Task ConsultaSiempreElClimaDeAlcala()
+    public async Task ConsultaElClimaDelMunicipioQueSeLePide()
     {
         var bot = new BotDePrueba();
 
-        await bot.Bot.ObtenerTiempoAsync(default);
+        await bot.Bot.ObtenerTiempoAsync("41", "41004", default);
+        await bot.Bot.ObtenerTiempoAsync("23", "23039", default);
 
         await bot.Clima.Received(1).ObtenerTiempoPorMunicipioAsync("41", "41004", Arg.Any<CancellationToken>());
+        await bot.Clima.Received(1).ObtenerTiempoPorMunicipioAsync("23", "23039", Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>
+    /// El municipio se decide en la sobrecarga sin argumentos, así que el render nunca elige
+    /// por su cuenta: hay que comprobar que pide Alcalá o, si el dado lo saca, un pueblo de
+    /// la lista de alternativos.
+    /// </summary>
+    [Fact]
+    public async Task ElDadoSoloSacaPueblosDeLaLista()
+    {
+        var bot = new BotDePrueba();
+
+        for (int tirada = 0; tirada < 40; tirada++)
+        {
+            bot.Clima.ClearReceivedCalls();
+
+            await bot.Bot.ObtenerTiempoAsync(default);
+
+            await bot.ReceivedClimaDeAlcalaOAlterno();
+        }
+    }
+
+    [Fact]
+    public async Task MuestraGuarromanCuandoSePideSuMunicipio()
+    {
+        var bot = new BotDePrueba();
+        bot.Clima.ObtenerTiempoPorMunicipioAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(RespuestasJson.Tiempo(nombre: "Guarromán", nombreProvincia: "Jaén"));
+
+        var texto = await bot.Bot.ObtenerTiempoAsync("23", "23039", default);
+
+        Assert.Contains("**El tiempo en Guarromán** (Jaén)", texto);
+    }
+}
+
+public class ConsejoCocheTests
+{
+    private static async Task<string> ParteCon(string descripcion, string precipitacion)
+    {
+        var bot = new BotDePrueba();
+        bot.Clima.ObtenerTiempoPorMunicipioAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(RespuestasJson.Tiempo(descripcion: descripcion, precipitacion: precipitacion));
+
+        return await bot.Bot.ObtenerTiempoAsync("41", "41004", default);
+    }
+
+    [Theory]
+    [InlineData("Despejado")]
+    [InlineData("Poco nuboso")]
+    [InlineData("Muy nuboso")]
+    [InlineData("Cubierto")]
+    [InlineData("Niebla")]
+    public async Task DiceQueLaveElCocheCuandoNoHayAguaEnElCielo(string descripcion)
+    {
+        var texto = await ParteCon(descripcion, "0");
+
+        Assert.Contains("Lave el coche", texto);
+        Assert.DoesNotContain("BAJO NINGÚN CONCEPTO", texto);
+    }
+
+    [Theory]
+    [InlineData("Intervalos nubosos con lluvia escasa")]
+    [InlineData("Nuboso con lluvia")]
+    [InlineData("Muy nuboso con lluvia escasa")]
+    [InlineData("Tormentas")]
+    [InlineData("Nieve")]
+    public async Task DiceQueNoLaveElCocheCuandoElCieloLlueve(string descripcion)
+    {
+        var texto = await ParteCon(descripcion, "0");
+
+        Assert.Contains("BAJO NINGÚN CONCEPTO lave el coche", texto);
+    }
+
+    /// <summary>
+    /// El MITECO publica "Cubierto con lluvia escasa" con 0,0 mm acumulados, así que con mirar
+    /// los milímetros el consejo saldría al revés.
+    /// </summary>
+    [Fact]
+    public async Task DiceQueNoLaveElCocheSiHaCaidoAguaAunqueElCieloNoLoDiga()
+    {
+        var texto = await ParteCon("Despejado", "0.4");
+
+        Assert.Contains("BAJO NINGÚN CONCEPTO lave el coche", texto);
+    }
+
+    [Fact]
+    public async Task ElConsejoEsLaUltimaLinea()
+    {
+        var texto = await ParteCon("Despejado", "0");
+
+        Assert.EndsWith("**Lave el coche**", texto);
+    }
+}
+
+public class MunicipiosAlternosTests
+{
+    [Fact]
+    public void GuarromanEstaEnLaLista()
+    {
+        Assert.Contains(MunicipiosAlternos.Todos, a => a.CodProvincia == "23" && a.CodIne == "23039");
+    }
+
+    /// <summary>
+    /// Todos los códigos tienen que servir para la URL de el-tiempo.net: dos dígitos de
+    /// provincia y cinco de INE, que es como se abrevian.
+    /// </summary>
+    [Fact]
+    public void TodosLosCodigosTienenLaFormaDeLaUrl()
+    {
+        Assert.NotEmpty(MunicipiosAlternos.Todos);
+
+        foreach (var alterno in MunicipiosAlternos.Todos)
+        {
+            Assert.Equal(2, alterno.CodProvincia.Length);
+            Assert.Equal(5, alterno.CodIne.Length);
+            Assert.All(alterno.CodProvincia, c => Assert.True(char.IsAsciiDigit(c)));
+            Assert.All(alterno.CodIne, c => Assert.True(char.IsAsciiDigit(c)));
+        }
+    }
+
+    /// <summary>
+    /// El dado tiene que salir a la mitad de las veces. Con 1000 tiradas la desviación
+    /// típica es del 1,6%, así que el margen del 10% no da falsos negativos.
+    /// </summary>
+    [Fact]
+    public void ElDadoSaleGuarromanMasOMenosLaMitadDeLasVeces()
+    {
+        int alternos = 0;
+        const int Tiradas = 1000;
+
+        for (int i = 0; i < Tiradas; i++)
+        {
+            if (MunicipiosAlternos.Elegir() is not null)
+                alternos++;
+        }
+
+        Assert.InRange(alternos, Tiradas * 4 / 10, Tiradas * 6 / 10);
     }
 }
 

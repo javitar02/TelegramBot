@@ -177,8 +177,12 @@ public class CallbacksTests
         Assert.Contains("de más barata a más cara", bot.UltimoEdit.Texto);
     }
 
+    /// <summary>
+    /// El botón del clima siempre acaba en un parte, pero el dado decide de qué pueblo sale,
+    /// así que el aserto ya no puede fijar el código de Alcalá.
+    /// </summary>
     [Fact]
-    public async Task ConsultaElClimaDeAlcala()
+    public async Task ElCallbackDeClimaMuestraElParte()
     {
         var bot = new BotDePrueba();
         bot.Clima.ObtenerTiempoPorMunicipioAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
@@ -186,7 +190,7 @@ public class CallbacksTests
 
         await bot.Bot.HandleCallbackQueryAsync(BotDePrueba.CallbackQuery(ChatId, "w"), default);
 
-        await bot.Clima.Received(1).ObtenerTiempoPorMunicipioAsync("41", "41004", Arg.Any<CancellationToken>());
+        await bot.ReceivedClimaDeAlcalaOAlterno();
         Assert.Contains("El tiempo en Alcalá de Guadaíra", bot.UltimoEdit.Texto);
     }
 
@@ -199,7 +203,7 @@ public class CallbacksTests
 
         await bot.Bot.HandleCallbackQueryAsync(BotDePrueba.CallbackQuery(ChatId, "w|41004"), default);
 
-        await bot.Clima.Received(1).ObtenerTiempoPorMunicipioAsync("41", "41004", Arg.Any<CancellationToken>());
+        await bot.ReceivedClimaDeAlcalaOAlterno();
         Assert.Contains("El tiempo en Alcalá de Guadaíra", bot.UltimoEdit.Texto);
     }
 

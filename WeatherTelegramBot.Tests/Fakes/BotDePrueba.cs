@@ -78,4 +78,17 @@ internal sealed class BotDePrueba
 
     public PeticionTelegram ConCallback(string esperado) =>
         Cliente.Peticiones.Single(p => p.Callbacks.Contains(esperado));
+
+    /// <summary>
+    /// El clima sale de Alcalá o, si el dado lo decide, de un pueblo de la lista de
+    /// alternativos. Este aserto acepta cualquiera de los dos, para que los tests del callback
+    /// no dependan de la tirada.
+    /// </summary>
+    public Task ReceivedClimaDeAlcalaOAlterno() =>
+        Clima.Received(1).ObtenerTiempoPorMunicipioAsync(
+            Arg.Is<string>(p => p == MunicipioAlcala.CodigoProvincia
+                || MunicipiosAlternos.Todos.Any(a => a.CodProvincia == p)),
+            Arg.Is<string>(m => m == MunicipioAlcala.CodigoIne
+                || MunicipiosAlternos.Todos.Any(a => a.CodIne == m)),
+            Arg.Any<CancellationToken>());
 }

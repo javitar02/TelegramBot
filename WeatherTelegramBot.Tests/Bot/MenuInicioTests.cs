@@ -51,15 +51,18 @@ public class MenuInicioTests
         Assert.Empty(enviada.Botones);
     }
 
-    /// <summary>El botón de clima va directo al tiempo de Alcalá, sin listado de municipios.</summary>
+    /// <summary>
+    /// El botón de clima va directo al parte, sin listado de municipios. Lo que decide el dado
+    /// es el pueblo, no si se consulta el clima.
+    /// </summary>
     [Fact]
-    public async Task ElBotonDeInicioDeClimaMuestraDirectamenteElClimaDeAlcala()
+    public async Task ElBotonDeInicioDeClimaMuestraDirectamenteElClima()
     {
         var bot = Bot();
 
         await bot.Bot.HandleCallbackQueryAsync(BotDePrueba.CallbackQuery(ChatId, CallbackClima), default);
 
-        await bot.Clima.Received(1).ObtenerTiempoPorMunicipioAsync("41", "41004", Arg.Any<CancellationToken>());
+        await bot.ReceivedClimaDeAlcalaOAlterno();
         Assert.Contains("pr", bot.UltimoEdit.Callbacks);
     }
 

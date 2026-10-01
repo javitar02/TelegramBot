@@ -271,10 +271,25 @@ namespace WeatherTelegramBot.Services
             return [.. navegacion];
         }
 
-        internal async Task<string> ObtenerTiempoAsync(CancellationToken cancellationToken)
+        /// <summary>
+        /// Parte del clima. La mitad de las veces el dado saca un pueblo alterno, así que el
+        /// municipio se decide aquí y el render se delega en la sobrecarga de abajo.
+        /// </summary>
+        internal Task<string> ObtenerTiempoAsync(CancellationToken cancellationToken)
         {
-            var clima = await _weatherService.ObtenerTiempoPorMunicipioAsync(
-                MunicipioAlcala.CodigoProvincia, MunicipioAlcala.CodigoIne, cancellationToken);
+            var alterno = MunicipiosAlternos.Elegir();
+
+            return alterno is { } otro
+                ? ObtenerTiempoAsync(otro.CodProvincia, otro.CodIne, cancellationToken)
+                : ObtenerTiempoAsync(MunicipioAlcala.CodigoProvincia, MunicipioAlcala.CodigoIne, cancellationToken);
+        }
+
+        internal async Task<string> ObtenerTiempoAsync(
+            string codProvincia,
+            string codIne,
+            CancellationToken cancellationToken)
+        {
+            var clima = await _weatherService.ObtenerTiempoPorMunicipioAsync(codProvincia, codIne, cancellationToken);
 
             if (clima?.Municipio is null || clima.Temperaturas is null || clima.EstadoCielo is null)
                 return "⚠️ No se pudo obtener la información del clima en este momento.";
@@ -284,7 +299,31 @@ namespace WeatherTelegramBot.Services
                    $"• Actual: {clima.TemperaturaActual}°C | Mín: {clima.Temperaturas.Minima}°C | Máx: {clima.Temperaturas.Maxima}°C\n" +
                    $"• Humedad: {clima.Humedad}% | Viento: {clima.Viento} km/h\n" +
                    $"• Precipitación: {clima.Precipitacion} mm\n" +
-                   $"• Actualizado: {clima.Elaborado}";
+                   $"• Actualizado: {clima.Elaborado}\n\n" +
+                   ConsejoCoche(clima.EstadoCielo.Descripcion, clima.Precipitacion);
+        }
+
+        /// <summary>
+        /// Última línea del parte: si el cielo lleva agua, lavar el coche es tirar el dinero.
+        /// Mira la descripción y no solo los milímetros, porque el MITECO publica "Cubierto
+        /// con lluvia escasa" con 0,0 mm acumulados.
+        /// </summary>
+        private static string ConsejoCoche(string? descripcion, string? precipitacion) =>
+            $"🚗 {(VaAGover(descripcion, precipitacion) ? "**BAJO NINGÚN CONCEPTO lave el coche**" : "**Lave el coche**")}";
+
+        private static readonly string[] PalabrasDeAgua =
+            ["lluvia", "chubasco", "tormenta", "nieve", "granizo", "aguacero", "orballo"];
+
+        private static bool VaAGover(string? descripcion, string? precipitacion)
+        {
+            if (double.TryParse(precipitacion, NumberStyles.Any, CultureInfo.InvariantCulture, out var milimetros)
+                && milimetros > 0)
+            {
+                return true;
+            }
+
+            return PalabrasDeAgua.Any(palabra =>
+                descripcion?.Contains(palabra, StringComparison.OrdinalIgnoreCase) == true);
         }
 
         /// <summary>
