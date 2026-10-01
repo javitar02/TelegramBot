@@ -1,6 +1,6 @@
 using WeatherTelegramBot.Models;
 
-namespace WeatherTelegramBot.Services
+namespace WeatherTelegramBot.Services.Interfaces
 {
     public interface IPrediccionService
     {

@@ -1,6 +1,6 @@
 ﻿using WeatherTelegramBot.Responses;
 
-namespace WeatherTelegramBot.Services
+namespace WeatherTelegramBot.Services.Interfaces
 {
     public interface IWeatherService
     {

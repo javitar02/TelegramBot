@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using WeatherTelegramBot.Models;
 using WeatherTelegramBot.Responses;
+using WeatherTelegramBot.Services.Interfaces;
 
 namespace WeatherTelegramBot.Services
 {

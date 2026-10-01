@@ -1,5 +1,6 @@
 using Telegram.Bot;
 using WeatherTelegramBot.Services;
+using WeatherTelegramBot.Services.Interfaces;
 
 var builder = Host.CreateApplicationBuilder(args);
 

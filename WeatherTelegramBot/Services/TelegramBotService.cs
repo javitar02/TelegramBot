@@ -8,6 +8,7 @@ using Telegram.Bot.Types.Enums;
 using Telegram.Bot.Types.ReplyMarkups;
 using WeatherTelegramBot.Models;
 using WeatherTelegramBot.Responses;
+using WeatherTelegramBot.Services.Interfaces;
 
 namespace WeatherTelegramBot.Services
 {
