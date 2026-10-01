@@ -24,7 +24,12 @@ namespace WeatherTelegramBot.Services
         private readonly ILogger<GasolinaService> _logger;
         private readonly SemaphoreSlim _cargaLock = new(1, 1);
 
-        private CacheEstaciones? _cache;
+        /// <summary>
+        /// Una entrada por provincia. Con una sola entrada, alternar entre Alcalá (Sevilla) y
+        /// Guarromán (Jaén) la invalidaría en cada pulsación y obligaría a bajarse la provincia
+        /// entera otra vez: son varios megas de stations cada media hora.
+        /// </summary>
+        private readonly Dictionary<string, CacheEstaciones> _cache = new(StringComparer.Ordinal);
 
         public GasolinaService(IHttpClientFactory httpClientFactory, ILogger<GasolinaService> logger)
         {
@@ -97,13 +102,13 @@ namespace WeatherTelegramBot.Services
             CancellationToken cancellationToken)
         {
             if (EsCacheValida(codProvincia))
-                return _cache!.Estaciones;
+                return DeCache(codProvincia);
 
             await _cargaLock.WaitAsync(cancellationToken);
             try
             {
                 if (EsCacheValida(codProvincia))
-                    return _cache!.Estaciones;
+                    return DeCache(codProvincia);
 
                 string url = $"{BaseUrl}/EstacionesTerrestres/FiltroProvincia/{codProvincia}";
                 var httpClient = _httpClientFactory.CreateClient(NombreCliente);
@@ -119,19 +124,19 @@ namespace WeatherTelegramBot.Services
                     .ReadFromJsonAsync<PreciosCarburantesResponse>(cancellationToken)
                     .ConfigureAwait(false);
 
-                if (datos?.ListaEESSPrecio is null || datos.ListaEESSPrecio.Count == 0)
+                if (datos?.ListaEESSPrecio is not { Count: > 0 } lista)
                 {
                     _logger.LogError("El API de carburantes devolvió un listado vacío para la provincia {Provincia}", codProvincia);
                     return Array.Empty<EstacionServicioDto>();
                 }
 
-                _cache = new CacheEstaciones(codProvincia, DateTimeOffset.UtcNow, datos.ListaEESSPrecio);
+                _cache[codProvincia] = new CacheEstaciones(DateTimeOffset.UtcNow, lista);
 
                 _logger.LogInformation(
                     "Precios de carburantes cargados: {Cantidad} estaciones en la provincia {Provincia} (MITECO {Fecha})",
-                    datos.ListaEESSPrecio.Count, codProvincia, datos.Fecha);
+                    lista.Count, codProvincia, datos.Fecha);
 
-                return _cache.Estaciones;
+                return DeCache(codProvincia);
             }
             catch (HttpRequestException ex)
             {
@@ -151,10 +156,11 @@ namespace WeatherTelegramBot.Services
 
         private bool EsCacheValida(string codProvincia)
         {
-            return _cache is not null &&
-                   _cache.Provincia == codProvincia &&
-                   DateTimeOffset.UtcNow - _cache.Cargada < CacheValidez;
+            return _cache.TryGetValue(codProvincia, out var cache) &&
+                   DateTimeOffset.UtcNow - cache.Cargada < CacheValidez;
         }
+
+        private IReadOnlyList<EstacionServicioDto> DeCache(string codProvincia) => _cache[codProvincia].Estaciones;
 
         /// <summary>
         /// El MITECO usa coma decimal, así que se normaliza a punto antes de parsear.
@@ -190,7 +196,6 @@ namespace WeatherTelegramBot.Services
         }
 
         private sealed record CacheEstaciones(
-            string Provincia,
             DateTimeOffset Cargada,
             IReadOnlyList<EstacionServicioDto> Estaciones);
     }

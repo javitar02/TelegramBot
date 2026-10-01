@@ -192,8 +192,12 @@ namespace WeatherTelegramBot.Services
                         break;
                     }
 
+                    // Al arrancar se tira el dado, pero al paginar manda el INE del callback:
+                    // si no, la página 2 podría salir de un pueblo distinto al de la página 1.
+                    var pueblo = esListado ? Pueblos.PorIne(valor) : Pueblos.Elegir();
+
                     int pagina = esListado && int.TryParse(valor2, out int gl) ? gl : 0;
-                    var gasolineras = await ConstruirTecladoGasolinerasAsync(pagina, tipo, cancellationToken);
+                    var gasolineras = await ConstruirTecladoGasolinerasAsync(pueblo, pagina, tipo, cancellationToken);
                     await ReemplazarMensaje(chatId, messageId, gasolineras.Texto, gasolineras.Teclado, cancellationToken);
                     break;
 
@@ -277,11 +281,9 @@ namespace WeatherTelegramBot.Services
         /// </summary>
         internal Task<string> ObtenerTiempoAsync(CancellationToken cancellationToken)
         {
-            var alterno = MunicipiosAlternos.Elegir();
+            var pueblo = Pueblos.Elegir();
 
-            return alterno is { } otro
-                ? ObtenerTiempoAsync(otro.CodProvincia, otro.CodIne, cancellationToken)
-                : ObtenerTiempoAsync(MunicipioAlcala.CodigoProvincia, MunicipioAlcala.CodigoIne, cancellationToken);
+            return ObtenerTiempoAsync(pueblo.CodProvincia, pueblo.CodIne, cancellationToken);
         }
 
         internal async Task<string> ObtenerTiempoAsync(
@@ -425,11 +427,12 @@ namespace WeatherTelegramBot.Services
 
         /// <summary>
         /// Pregunta con qué carburante comparar antes de mostrar las gasolineras. El tipo se
-        /// elige una vez y a partir de ahí viaja en el callbackData de cada botón.
+        /// elige una vez y a partir de ahí viaja en el callbackData de cada botón. El pueblo no
+        /// se anuncia aquí porque todavía no se ha tirado el dado.
         /// </summary>
         internal static (string Texto, InlineKeyboardMarkup Teclado) PreguntaCarburante { get; } = (
             "⛽ **¿Qué carburante quieres consultar?**\n\n" +
-            $"Te paso las gasolineras de {MunicipioAlcala.Nombre} ordenadas de más barata a más cara " +
+            "Te paso las gasolineras más baratas de la zona, ordenadas de más barata a más cara " +
             $"(radio {RadioGasolinerasKm:0} km).",
             new InlineKeyboardMarkup(
             [
@@ -441,21 +444,26 @@ namespace WeatherTelegramBot.Services
         internal static InlineKeyboardMarkup TecladoInicio() =>
             new(ConstruirFilaPrincipal());
 
+        /// <summary>
+        /// Gasolineras cerca del pueblo tocado por el dado. El pueblo llega como parámetro y no
+        /// se tira aquí porque al paginar tiene que ser el mismo de la primera página.
+        /// </summary>
         internal async Task<(string Texto, InlineKeyboardMarkup Teclado)> ConstruirTecladoGasolinerasAsync(
+            Pueblo pueblo,
             int pagina,
             TipoCarburante carburante,
             CancellationToken cancellationToken)
         {
             var gasolineras = await _gasolinaService.ObtenerGasolinerasCercaAsync(
-                MunicipioAlcala.CodigoProvincia,
-                MunicipioAlcala.Latitud,
-                MunicipioAlcala.Longitud,
+                pueblo.CodProvincia,
+                pueblo.Latitud,
+                pueblo.Longitud,
                 RadioGasolinerasKm,
                 carburante,
                 cancellationToken);
 
             if (gasolineras.Count == 0)
-                return ($"⛽ No hay gasolineras con precio de {carburante.Nombre()} a menos de {RadioGasolinerasKm:0} km de {MunicipioAlcala.Nombre}.",
+                return ($"⛽ No hay gasolineras con precio de {carburante.Nombre()} a menos de {RadioGasolinerasKm:0} km de {pueblo.Nombre}.",
                         TecladoAviso(BotonCambiarCarburante, CallbackElegirCarburante));
 
             int totalPaginas = (int)Math.Ceiling(gasolineras.Count / (double)GasolinerasPorPagina);
@@ -463,7 +471,7 @@ namespace WeatherTelegramBot.Services
 
             var sb = new StringBuilder();
             string tituloCarburante = carburante == TipoCarburante.GasoleoA ? "Diesel" : carburante.Nombre();
-            sb.AppendLine($"⛽ **Gasolineras {MunicipioAlcala.Nombre}**");
+            sb.AppendLine($"⛽ **Gasolineras {pueblo.Nombre}**");
             sb.AppendLine($"{tituloCarburante} · radio {RadioGasolinerasKm:0} km · {gasolineras.Count} gasolineras");
 
             if (totalPaginas > 1)
@@ -477,7 +485,7 @@ namespace WeatherTelegramBot.Services
             foreach (var gasolinera in paginaActual)
             {
                 posicion++;
-                sb.AppendLine($"{posicion}. **{Escapar(gasolinera.Nombre)}** — **{Formato(gasolinera.Precio, 3)} €/L**");
+                sb.AppendLine($"{posicion}. **{Escapar(gasolinera.Nombre)}** — **{FormatoPrecio(gasolinera.Precio)}**");
                 sb.AppendLine($"   {Escapar(gasolinera.Direccion)}");
             }
 
@@ -485,12 +493,12 @@ namespace WeatherTelegramBot.Services
             if (totalPaginas > 1)
             {
                 filas.Add(ConstruirFilaNavegacion(
-                    p => $"{CallbackGasolinerasPagina}|{MunicipioAlcala.CodigoIne}|{p}|{carburante.Token()}",
+                    p => $"{CallbackGasolinerasPagina}|{pueblo.CodIne}|{p}|{carburante.Token()}",
                     pagina,
                     totalPaginas));
             }
 
-            // Solo se ofrece Alcalá de Guadaíra, así que no tiene sentido un botón para
+            // El pueblo ya lo ha fijado el dado, así que no tiene sentido un botón para
             // cambiar de municipio: queda el de volver a pedir otro carburante.
             filas.Add([
                 new InlineKeyboardButton(BotonCambiarCarburante) { CallbackData = CallbackElegirCarburante },
@@ -502,6 +510,20 @@ namespace WeatherTelegramBot.Services
         }
 
         internal static string Formato(double valor, int decimales) => valor.ToString("F" + decimales, CultureEspanol);
+
+        /// <summary>
+        /// 1 euro son 166,386 pesetas desde 1998, así que la conversión es fija y no hace
+        /// falta ir a buscar un tipo de cambio. El MITECO manda el precio en euros por litro y
+        /// el bot lo enseña en pesetas.
+        /// </summary>
+        internal const double PesetasPorEuro = 166.386;
+
+        /// <summary>
+        /// El precio se escribe sin la barra de "€/L": Telegram se come lo que va detrás de una
+        /// barra como si fuera un comando y el mensaje llegaba con el comando colgando.
+        /// </summary>
+        internal static string FormatoPrecio(double eurosPorLitro) =>
+            $"{Formato(eurosPorLitro * PesetasPorEuro, 2)} pts por litro";
 
         /// <summary>
         /// Los rótulos vienen del MITECO y pueden llevar acentos, puntos o barras bajas
