@@ -212,7 +212,7 @@ public class PrediccionTests
     }
 
     [Fact]
-    public void EscapaLasDescripcionesParaNoRomperElMarkdown()
+    public async Task EscapaLasDescripcionesParaNoRomperElMarkdown()
     {
         var conMarkdown = Ejemplo() with
         {
@@ -220,7 +220,7 @@ public class PrediccionTests
         };
         var bot = ConPrediccion(conMarkdown);
 
-        var texto = bot.Bot.ObtenerPrediccionAsync(default).Result;
+        var texto = await bot.Bot.ObtenerPrediccionAsync(default);
 
         Assert.Contains(@"Nubes\_altas \*raras\*", texto);
     }
