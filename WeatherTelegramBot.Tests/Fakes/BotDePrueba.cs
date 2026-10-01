@@ -16,18 +16,15 @@ internal sealed class BotDePrueba
     public ClienteTelegramDePrueba Cliente { get; } = new();
 
     public IWeatherService Clima { get; } = Substitute.For<IWeatherService>();
-    public IMunicipioService Municipios { get; } = Substitute.For<IMunicipioService>();
     public IGasolinaService Gasolina { get; } = Substitute.For<IGasolinaService>();
+
+    public IPrediccionService Prediccion { get; } = Substitute.For<IPrediccionService>();
 
     public TelegramBotService Bot { get; }
 
     public BotDePrueba()
     {
-        Bot = new TelegramBotService(Cliente, Clima, Municipios, Gasolina, LoggerFactory());
-
-        Municipios
-            .ObtenerMunicipiosAsync(Arg.Any<CancellationToken>())
-            .Returns([RespuestasJson.Municipio(nombre: "Sevilla")]);
+        Bot = new TelegramBotService(Cliente, Clima, Gasolina, Prediccion, LoggerFactory());
     }
 
     public static Microsoft.Extensions.Logging.ILogger<TelegramBotService> LoggerFactory() =>

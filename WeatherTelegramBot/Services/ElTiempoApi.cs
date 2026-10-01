@@ -1,13 +1,11 @@
 namespace WeatherTelegramBot.Services
 {
     /// <summary>
-    /// Datos comunes del servicio externo el-tiempo.net, usado tanto para el catálogo
-    /// de municipios como para la previsión meteorológica.
+    /// Datos comunes del servicio externo el-tiempo.net, usado para el clima y la previsión.
     /// </summary>
     internal static class ElTiempoApi
     {
         public const string BaseUrl = "https://api.el-tiempo.net/json/v3";
         public const string NombreCliente = "eltiempo";
-        public const string CodProvinciaSevilla = "41";
     }
 }

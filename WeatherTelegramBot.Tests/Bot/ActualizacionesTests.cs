@@ -23,43 +23,7 @@ public class ActualizacionesTests
         var enviada = Assert.Single(bot.Cliente.DeMetodo("sendMessage"));
         Assert.Equal(ChatId, enviada.ChatId);
         Assert.Contains("Soy tu bot del tiempo", enviada.Texto);
-        Assert.Equal(["ir_clima", "ir_gasofa"], enviada.Callbacks);
-    }
-
-    [Fact]
-    public async Task MuestraElTecladoDeMunicipiosCuandoPulsanElBotonDeClima()
-    {
-        var bot = new BotDePrueba();
-
-        await bot.Bot.HandleUpdateAsync(bot.Cliente, BotDePrueba.Mensaje(ChatId, "☀️ Consultar Clima"), default);
-
-        var enviada = bot.UltimoSend;
-        Assert.Equal(ChatId, enviada.ChatId);
-        Assert.Equal(ParseMode.Markdown, enviada.ModoParseo);
-        Assert.Contains("Municipios de Sevilla", enviada.Texto);
-    }
-
-    [Fact]
-    public async Task MuestraElTecladoDeMunicipiosCuandoPulsanElBotonDeGasofa()
-    {
-        var bot = new BotDePrueba();
-
-        await bot.Bot.HandleUpdateAsync(bot.Cliente, BotDePrueba.Mensaje(ChatId, "⛽ Consultar Gasofa"), default);
-
-        var enviada = bot.UltimoSend;
-        Assert.Equal(ChatId, enviada.ChatId);
-        Assert.Equal(ParseMode.Markdown, enviada.ModoParseo);
-        Assert.Contains("Gasolineras en Sevilla", enviada.Texto);
-    }
-
-    [Fact]
-    public async Task ElBotonDeGasofaAnunciaElOrdenPorPrecio()
-    {
-        var bot = new BotDePrueba();
-
-        await bot.Bot.HandleUpdateAsync(bot.Cliente, BotDePrueba.Mensaje(ChatId, "⛽ Consultar Gasofa"), default);
-
-        Assert.Contains("de más barata a más cara", bot.UltimoSend.Texto);
+        Assert.Equal(["w", "tipo"], enviada.Callbacks);
     }
 
     [Theory]
@@ -97,7 +61,7 @@ public class ActualizacionesTests
     }
 
     [Fact]
-    public async Task PropagaLaCancelacion()
+    public async Task PropagaElCancelacion()
     {
         var bot = new BotDePrueba();
         using var cts = new CancellationTokenSource();
@@ -110,6 +74,18 @@ public class ActualizacionesTests
 public class CallbacksTests
 {
     private const long ChatId = 4242;
+
+    private static BotDePrueba ConGasolineras(params Gasolinera[] gasolineras)
+    {
+        var bot = new BotDePrueba();
+        bot.Gasolina
+            .ObtenerGasolinerasCercaAsync(Arg.Any<string>(), Arg.Any<double>(), Arg.Any<double>(), Arg.Any<double>(), Arg.Any<TipoCarburante>(), Arg.Any<CancellationToken>())
+            .Returns(gasolineras);
+        return bot;
+    }
+
+    private static Gasolinera G(string nombre, double precio, double distancia) =>
+        new(nombre, "Calle Real, 1", precio, distancia);
 
     [Fact]
     public async Task RespondeQueYaEstasEnLaPaginaConElBotonIndicador()
@@ -124,7 +100,7 @@ public class CallbacksTests
     }
 
     [Fact]
-    public async Task ElMenuVuelveALaPrimeraPaginaDeMunicipios()
+    public async Task ElMenuVuelveALaBienvenida()
     {
         var bot = new BotDePrueba();
 
@@ -134,102 +110,145 @@ public class CallbacksTests
         Assert.Equal(ChatId, editada.ChatId);
         Assert.Equal(500, editada.MessageId);
         Assert.Equal(ParseMode.Markdown, editada.ModoParseo);
-        Assert.Contains("página 1 de", editada.Texto);
-        Assert.Contains("w|41091", editada.Callbacks);
+        Assert.Contains("Soy tu bot del tiempo", editada.Texto);
+        Assert.Equal(["w", "tipo"], editada.Callbacks);
     }
 
+    /// <summary>Ya no hay listado de municipios, así que su paginación antigua no se usa.</summary>
     [Theory]
     [InlineData("pg|0")]
     [InlineData("pg|3")]
-    public async Task ElCallbackDePaginaDelClimaReordenaElTeclado(string datos)
+    [InlineData("jp|S")]
+    [InlineData("gj|S|95")]
+    public async Task LosCallbacksDePaginacionAntiguosSeIgnoran(string datos)
     {
         var bot = new BotDePrueba();
 
         await bot.Bot.HandleCallbackQueryAsync(BotDePrueba.CallbackQuery(ChatId, datos), default);
 
-        Assert.NotEmpty(bot.Cliente.DeMetodo("editMessageText"));
+        Assert.Empty(bot.Cliente.DeMetodo("editMessageText"));
     }
 
+    /// <summary>Eligiendo carburante se va directo al listado, sin paso intermedio por municipio.</summary>
     [Theory]
-    [InlineData("gp|0")]
-    [InlineData("gj|S")]
-    public async Task ElCallbackDeGasofaAnunciaLasGasolineras(string datos)
+    [InlineData("ga|95", "Gasolina 95 E5")]
+    [InlineData("ga|di", "Diesel")]
+    public async Task PulsarGasolinaODieselMuestraElListadoDeAlcala(string datos, string carburante)
     {
-        var bot = new BotDePrueba();
+        var bot = ConGasolineras(G("REPSOL", 1.749, 0.4));
 
         await bot.Bot.HandleCallbackQueryAsync(BotDePrueba.CallbackQuery(ChatId, datos), default);
 
-        Assert.Contains("Gasolineras en Sevilla", bot.UltimoEdit.Texto);
-        Assert.Contains("g|41091", bot.UltimoEdit.Callbacks);
+        Assert.Contains("**Gasolineras Alcalá de Guadaíra**", bot.UltimoEdit.Texto);
+        Assert.Contains($"{carburante} · radio 10 km", bot.UltimoEdit.Texto);
+        await bot.Gasolina.Received(1).ObtenerGasolinerasCercaAsync(
+            "41", 37.463, -5.981, 10, Arg.Any<TipoCarburante>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
-    public async Task ConsultaElClimaDelMunicipioQueSePulsó()
+    public async Task SinTokenDeCarburanteVuelveAPreguntarQueCombustible()
+    {
+        var bot = new BotDePrueba();
+
+        await bot.Bot.HandleCallbackQueryAsync(BotDePrueba.CallbackQuery(ChatId, "ga|"), default);
+
+        Assert.Contains("¿Qué carburante quieres consultar?", bot.UltimoEdit.Texto);
+        Assert.Equal(["ga|95", "ga|di", "w", "tipo"], bot.UltimoEdit.Callbacks);
+    }
+
+    [Fact]
+    public async Task ElBotonDeCambiarCarburanteAbreElSubmenu()
+    {
+        var bot = new BotDePrueba();
+
+        await bot.Bot.HandleCallbackQueryAsync(BotDePrueba.CallbackQuery(ChatId, "tipo"), default);
+
+        Assert.Contains("¿Qué carburante quieres consultar?", bot.UltimoEdit.Texto);
+        Assert.Equal(["ga|95", "ga|di", "w", "tipo"], bot.UltimoEdit.Callbacks);
+    }
+
+    [Fact]
+    public async Task ElBotonDeGasofaAnunciaElOrdenPorPrecio()
+    {
+        var bot = new BotDePrueba();
+
+        await bot.Bot.HandleCallbackQueryAsync(BotDePrueba.CallbackQuery(ChatId, "tipo"), default);
+
+        Assert.Contains("de más barata a más cara", bot.UltimoEdit.Texto);
+    }
+
+    [Fact]
+    public async Task ConsultaElClimaDeAlcala()
     {
         var bot = new BotDePrueba();
         bot.Clima.ObtenerTiempoPorMunicipioAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(RespuestasJson.Tiempo(nombre: "Écija"));
+            .Returns(RespuestasJson.Tiempo(nombre: "Alcalá de Guadaíra"));
 
-        await bot.Bot.HandleCallbackQueryAsync(BotDePrueba.CallbackQuery(ChatId, "w|41054"), default);
+        await bot.Bot.HandleCallbackQueryAsync(BotDePrueba.CallbackQuery(ChatId, "w"), default);
 
-        await bot.Clima.Received(1).ObtenerTiempoPorMunicipioAsync("41", "41054", Arg.Any<CancellationToken>());
-        Assert.Contains("El tiempo en Écija", bot.UltimoEdit.Texto);
+        await bot.Clima.Received(1).ObtenerTiempoPorMunicipioAsync("41", "41004", Arg.Any<CancellationToken>());
+        Assert.Contains("El tiempo en Alcalá de Guadaíra", bot.UltimoEdit.Texto);
+    }
+
+    /// <summary>El callback antiguo con el código del municipio sigue llegando al clima.</summary>
+    [Fact]
+    public async Task ElCallbackAntiguoDeClimaTambienMuestraElTiempo()    {
+        var bot = new BotDePrueba();
+        bot.Clima.ObtenerTiempoPorMunicipioAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(RespuestasJson.Tiempo(nombre: "Alcalá de Guadaíra"));
+
+        await bot.Bot.HandleCallbackQueryAsync(BotDePrueba.CallbackQuery(ChatId, "w|41004"), default);
+
+        await bot.Clima.Received(1).ObtenerTiempoPorMunicipioAsync("41", "41004", Arg.Any<CancellationToken>());
+        Assert.Contains("El tiempo en Alcalá de Guadaíra", bot.UltimoEdit.Texto);
     }
 
     [Fact]
-    public async Task MuestraLasGasolinerasDelMunicipioConSuAhorro()
+    public async Task MuestraLasGasolinerasConSusPrecios()
     {
-        var bot = new BotDePrueba();
-        bot.Gasolina.ObtenerGasolinerasCercaAsync(Arg.Any<string>(), Arg.Any<double>(), Arg.Any<double>(), Arg.Any<double>(), Arg.Any<CancellationToken>())
-            .Returns(new ResultadoGasolineras(
-            [
-                GasolineraDe("REPSOL", 1.749, 0.4),
-                GasolineraDe("CEPSA", 1.899, 2.1)
-            ],
-            "12/09/2025 08:00"));
+        var bot = ConGasolineras(G("REPSOL", 1.749, 0.4), G("CEPSA", 1.899, 2.1));
 
-        await bot.Bot.HandleCallbackQueryAsync(BotDePrueba.CallbackQuery(ChatId, "g|41091"), default);
+        await bot.Bot.HandleCallbackQueryAsync(BotDePrueba.CallbackQuery(ChatId, "ga|95"), default);
 
         var texto = bot.UltimoEdit.Texto;
-        Assert.Contains("Gasolineras cerca de", texto);
+        Assert.Contains("**Gasolineras Alcalá de Guadaíra**", texto);
         Assert.Contains("1,749", texto);
         Assert.Contains("1,899", texto);
-        Assert.Contains("Datos MITECO", texto);
+        Assert.DoesNotContain("Datos MITECO", texto);
+    }
+
+    /// <summary>La paginación conserva el orden de los tokens en el callback.</summary>
+    [Fact]
+    public async Task LaPaginacionDelListadoMandaLaPaginaYElCarburante()
+    {
+        var bot = ConGasolineras(Enumerable.Range(1, 20).Select(i => G($"Estacion{i:D2}", 1.5 + i / 100.0, i)).ToArray());
+
+        await bot.Bot.HandleCallbackQueryAsync(BotDePrueba.CallbackQuery(ChatId, "gl|41004|1|95"), default);
+
+        Assert.Contains("Página 2 de 2", bot.UltimoEdit.Texto);
+        Assert.Contains("16. **Estacion16**", bot.UltimoEdit.Texto);
+    }
+
+    [Fact]
+    public async Task ElListadoDeGasolinerasPermiteCambiarDeCarburanteYVolverAlClima()
+    {
+        var bot = ConGasolineras(G("REPSOL", 1.749, 0.4));
+
+        await bot.Bot.HandleCallbackQueryAsync(BotDePrueba.CallbackQuery(ChatId, "ga|95"), default);
+
+        Assert.Contains("tipo", bot.UltimoEdit.Callbacks);
+        Assert.Contains("w", bot.UltimoEdit.Callbacks);
     }
 
     [Fact]
     public async Task AvisaSiNoHayGasolinerasCerca()
     {
-        var bot = new BotDePrueba();
-        bot.Gasolina.ObtenerGasolinerasCercaAsync(Arg.Any<string>(), Arg.Any<double>(), Arg.Any<double>(), Arg.Any<double>(), Arg.Any<CancellationToken>())
-            .Returns(new ResultadoGasolineras([], null));
+        var bot = ConGasolineras();
 
-        await bot.Bot.HandleCallbackQueryAsync(BotDePrueba.CallbackQuery(ChatId, "g|41091"), default);
+        await bot.Bot.HandleCallbackQueryAsync(BotDePrueba.CallbackQuery(ChatId, "ga|95"), default);
 
         Assert.Contains("No hay gasolineras", bot.UltimoEdit.Texto);
-    }
-
-    [Fact]
-    public async Task AvisaSiElMunicipioNoEstaEnElCatalogo()
-    {
-        var bot = new BotDePrueba();
-        bot.Municipios.ObtenerMunicipiosAsync(Arg.Any<CancellationToken>()).Returns([]);
-
-        await bot.Bot.HandleCallbackQueryAsync(BotDePrueba.CallbackQuery(ChatId, "g|99999"), default);
-
-        Assert.Contains("No se encontró ese municipio", bot.UltimoEdit.Texto);
-    }
-
-    [Fact]
-    public async Task AvisaSiFaltaElMunicipioParaConsultarLasGasolineras()
-    {
-        var bot = new BotDePrueba();
-        bot.Municipios.ObtenerMunicipiosAsync(Arg.Any<CancellationToken>())
-            .Returns([RespuestasJson.Municipio(nombre: "SinCoordenadas", latitud: null, longitud: null)]);
-
-        await bot.Bot.HandleCallbackQueryAsync(BotDePrueba.CallbackQuery(ChatId, "g|41091"), default);
-
-        Assert.Contains("No tengo coordenadas", bot.UltimoEdit.Texto);
+        Assert.Contains("tipo", bot.UltimoEdit.Callbacks);
     }
 
     [Fact]
@@ -286,7 +305,4 @@ public class CallbacksTests
         await Assert.ThrowsAsync<Telegram.Bot.Exceptions.ApiRequestException>(
             () => bot.Bot.HandleCallbackQueryAsync(BotDePrueba.CallbackQuery(ChatId, "menu"), default));
     }
-
-    private static Gasolinera GasolineraDe(string nombre, double precio, double distancia) =>
-        new(nombre, "Calle Real, 1", "Sevilla", 37.388, -5.982, distancia, precio, null, null, null);
 }

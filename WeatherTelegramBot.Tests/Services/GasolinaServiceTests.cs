@@ -1,4 +1,5 @@
 using System.Net;
+using WeatherTelegramBot.Models;
 using WeatherTelegramBot.Services;
 using WeatherTelegramBot.Tests.Fakes;
 
@@ -15,7 +16,7 @@ public class GasolinaServiceTests
         var handler = FakeHttpMessageHandler.Json(RespuestasJson.Precios(RespuestasJson.Estacion()));
         var factory = new FakeHttpClientFactory().RegistrarGasolina(handler);
 
-        await Crear(factory).ObtenerGasolinerasCercaAsync("41", 37.388, -5.982, 10);
+        await Crear(factory).ObtenerGasolinerasCercaAsync("41", 37.388, -5.982, 10, TipoCarburante.Gasolina95);
 
         Assert.Equal(
             "https://sedeaplicaciones.minetur.gob.es/ServiciosRESTCarburantes/PreciosCarburantes/EstacionesTerrestres/FiltroProvincia/41",
@@ -28,20 +29,9 @@ public class GasolinaServiceTests
         var factory = new FakeHttpClientFactory().RegistrarGasolina(
             FakeHttpMessageHandler.Json(RespuestasJson.Precios(RespuestasJson.Estacion(precio95: "1,749"))));
 
-        var resultado = await Crear(factory).ObtenerGasolinerasCercaAsync("41", 37.388, -5.982, 10);
+        var resultado = await Crear(factory).ObtenerGasolinerasCercaAsync("41", 37.388, -5.982, 10, TipoCarburante.Gasolina95);
 
-        Assert.Equal(1.749, Assert.Single(resultado.Gasolineras).PrecioGasolina95, 3);
-    }
-
-    [Fact]
-    public async Task ExponeLaFechaDeLosDatosDelMinisterio()
-    {
-        var factory = new FakeHttpClientFactory().RegistrarGasolina(
-            FakeHttpMessageHandler.Json(RespuestasJson.PreciosConFecha("12/09/2025 08:00:00", RespuestasJson.Estacion())));
-
-        var resultado = await Crear(factory).ObtenerGasolinerasCercaAsync("41", 37.388, -5.982, 10);
-
-        Assert.Equal("12/09/2025 08:00:00", resultado.Actualizado);
+        Assert.Equal(1.749, Assert.Single(resultado).Precio, 3);
     }
 
     [Fact]
@@ -53,9 +43,9 @@ public class GasolinaServiceTests
                 RespuestasJson.Estacion("BARATO", precio95: "1,700", longitud: "-5,982"),
                 RespuestasJson.Estacion("IGUAL", precio95: "1,700", longitud: "-5,980"))));
 
-        var resultado = await Crear(factory).ObtenerGasolinerasCercaAsync("41", 37.388, -5.982, 10);
+        var resultado = await Crear(factory).ObtenerGasolinerasCercaAsync("41", 37.388, -5.982, 10, TipoCarburante.Gasolina95);
 
-        Assert.Equal(["BARATO", "IGUAL", "CARO"], resultado.Gasolineras.Select(g => g.Nombre));
+        Assert.Equal(["BARATO", "IGUAL", "CARO"], resultado.Select(g => g.Nombre));
     }
 
     [Fact]
@@ -66,9 +56,9 @@ public class GasolinaServiceTests
                 RespuestasJson.Estacion("CERCA", longitud: "-5,982"),
                 RespuestasJson.Estacion("LEJOS", longitud: "-6,500"))));
 
-        var resultado = await Crear(factory).ObtenerGasolinerasCercaAsync("41", 37.388, -5.982, 10);
+        var resultado = await Crear(factory).ObtenerGasolinerasCercaAsync("41", 37.388, -5.982, 10, TipoCarburante.Gasolina95);
 
-        Assert.Equal("CERCA", Assert.Single(resultado.Gasolineras).Nombre);
+        Assert.Equal("CERCA", Assert.Single(resultado).Nombre);
     }
 
     [Fact]
@@ -80,9 +70,23 @@ public class GasolinaServiceTests
                 RespuestasJson.Estacion("SIN_PRECIO", precio95: null),
                 RespuestasJson.Estacion("PRECIO_VACIO", precio95: ""))));
 
-        var resultado = await Crear(factory).ObtenerGasolinerasCercaAsync("41", 37.388, -5.982, 10);
+        var resultado = await Crear(factory).ObtenerGasolinerasCercaAsync("41", 37.388, -5.982, 10, TipoCarburante.Gasolina95);
 
-        Assert.Equal("CON_PRECIO", Assert.Single(resultado.Gasolineras).Nombre);
+        Assert.Equal("CON_PRECIO", Assert.Single(resultado).Nombre);
+    }
+
+    /// <summary>El gasóleo se pide con su propia columna del feed del MITECO.</summary>
+    [Fact]
+    public async Task FiltraPorGasoleoACuandoSePideDiesl()
+    {
+        var factory = new FakeHttpClientFactory().RegistrarGasolina(
+            FakeHttpMessageHandler.Json(RespuestasJson.Precios(
+                RespuestasJson.Estacion("SIN_GASOLEO", gasoleoA: null),
+                RespuestasJson.Estacion("CON_GASOLEO", gasoleoA: "1,559"))));
+
+        var resultado = await Crear(factory).ObtenerGasolinerasCercaAsync("41", 37.388, -5.982, 10, TipoCarburante.GasoleoA);
+
+        Assert.Equal("CON_GASOLEO", Assert.Single(resultado).Nombre);
     }
 
     [Fact]
@@ -95,9 +99,9 @@ public class GasolinaServiceTests
                 RespuestasJson.Estacion("LATITUD_INVALIDA", latitud: "N/D"),
                 RespuestasJson.Estacion("SIN_LONGITUD", longitud: null))));
 
-        var resultado = await Crear(factory).ObtenerGasolinerasCercaAsync("41", 37.388, -5.982, 10);
+        var resultado = await Crear(factory).ObtenerGasolinerasCercaAsync("41", 37.388, -5.982, 10, TipoCarburante.Gasolina95);
 
-        Assert.Equal("BIEN", Assert.Single(resultado.Gasolineras).Nombre);
+        Assert.Equal("BIEN", Assert.Single(resultado).Nombre);
     }
 
     [Fact]
@@ -108,9 +112,9 @@ public class GasolinaServiceTests
                 RespuestasJson.Estacion("REPSOL", longitud: "-5,982"),
                 RespuestasJson.Estacion("REPSOL", longitud: "-5,982"))));
 
-        var resultado = await Crear(factory).ObtenerGasolinerasCercaAsync("41", 37.388, -5.982, 10);
+        var resultado = await Crear(factory).ObtenerGasolinerasCercaAsync("41", 37.388, -5.982, 10, TipoCarburante.Gasolina95);
 
-        Assert.Single(resultado.Gasolineras);
+        Assert.Single(resultado);
     }
 
     [Fact]
@@ -118,30 +122,13 @@ public class GasolinaServiceTests
     {
         var factory = new FakeHttpClientFactory().RegistrarGasolina(
             FakeHttpMessageHandler.Json(RespuestasJson.Precios(
-                new Responses.EstacionServicioDto(null, null, null, null, "37,388", "-5,982", "1,749", null, null, null, null))));
+                new Responses.EstacionServicioDto(null, null, "37,388", "-5,982", "1,749", null))));
 
-        var resultado = await Crear(factory).ObtenerGasolinerasCercaAsync("41", 37.388, -5.982, 10);
+        var resultado = await Crear(factory).ObtenerGasolinerasCercaAsync("41", 37.388, -5.982, 10, TipoCarburante.Gasolina95);
 
-        var gasolinera = Assert.Single(resultado.Gasolineras);
+        var gasolinera = Assert.Single(resultado);
         Assert.Equal("Sin rótulo", gasolinera.Nombre);
         Assert.Equal("", gasolinera.Direccion);
-        Assert.Equal("", gasolinera.Municipio);
-    }
-
-    [Theory]
-    [InlineData(null)]
-    [InlineData("")]
-    [InlineData("   ")]
-    public async Task DevuelvePreciosOpcionalesEnNuloCuandoNoVienen(string? bruto)
-    {
-        var factory = new FakeHttpClientFactory().RegistrarGasolina(
-            FakeHttpMessageHandler.Json(RespuestasJson.Precios(RespuestasJson.Estacion(precio98: bruto, gasoleoA: bruto))));
-
-        var resultado = await Crear(factory).ObtenerGasolinerasCercaAsync("41", 37.388, -5.982, 10);
-
-        var gasolinera = Assert.Single(resultado.Gasolineras);
-        Assert.Null(gasolinera.PrecioGasolina98);
-        Assert.Null(gasolinera.PrecioGasoleoA);
     }
 
     [Theory]
@@ -152,10 +139,9 @@ public class GasolinaServiceTests
     {
         var factory = new FakeHttpClientFactory().RegistrarGasolina(FakeHttpMessageHandler.Estado(codigo));
 
-        var resultado = await Crear(factory).ObtenerGasolinerasCercaAsync("41", 37.388, -5.982, 10);
+        var resultado = await Crear(factory).ObtenerGasolinerasCercaAsync("41", 37.388, -5.982, 10, TipoCarburante.Gasolina95);
 
-        Assert.Empty(resultado.Gasolineras);
-        Assert.Null(resultado.Actualizado);
+        Assert.Empty(resultado);
     }
 
     [Fact]
@@ -163,9 +149,9 @@ public class GasolinaServiceTests
     {
         var factory = new FakeHttpClientFactory().RegistrarGasolina(FakeHttpMessageHandler.Json(RespuestasJson.PreciosSinLista()));
 
-        var resultado = await Crear(factory).ObtenerGasolinerasCercaAsync("41", 37.388, -5.982, 10);
+        var resultado = await Crear(factory).ObtenerGasolinerasCercaAsync("41", 37.388, -5.982, 10, TipoCarburante.Gasolina95);
 
-        Assert.Empty(resultado.Gasolineras);
+        Assert.Empty(resultado);
     }
 
     [Fact]
@@ -173,9 +159,9 @@ public class GasolinaServiceTests
     {
         var factory = new FakeHttpClientFactory().RegistrarGasolina(FakeHttpMessageHandler.Json("{ esto no es json"));
 
-        var resultado = await Crear(factory).ObtenerGasolinerasCercaAsync("41", 37.388, -5.982, 10);
+        var resultado = await Crear(factory).ObtenerGasolinerasCercaAsync("41", 37.388, -5.982, 10, TipoCarburante.Gasolina95);
 
-        Assert.Empty(resultado.Gasolineras);
+        Assert.Empty(resultado);
     }
 
     [Fact]
@@ -184,9 +170,9 @@ public class GasolinaServiceTests
         var factory = new FakeHttpClientFactory().RegistrarGasolina(
             FakeHttpMessageHandler.Falla(new HttpRequestException("sin conexión")));
 
-        var resultado = await Crear(factory).ObtenerGasolinerasCercaAsync("41", 37.388, -5.982, 10);
+        var resultado = await Crear(factory).ObtenerGasolinerasCercaAsync("41", 37.388, -5.982, 10, TipoCarburante.Gasolina95);
 
-        Assert.Empty(resultado.Gasolineras);
+        Assert.Empty(resultado);
     }
 
     [Fact]
@@ -196,9 +182,9 @@ public class GasolinaServiceTests
         var factory = new FakeHttpClientFactory().RegistrarGasolina(handler);
         var servicio = Crear(factory);
 
-        await servicio.ObtenerGasolinerasCercaAsync("41", 37.388, -5.982, 10);
-        await servicio.ObtenerGasolinerasCercaAsync("41", 37.388, -5.982, 10);
-        await servicio.ObtenerGasolinerasCercaAsync("41", 37.388, -5.982, 10);
+        await servicio.ObtenerGasolinerasCercaAsync("41", 37.388, -5.982, 10, TipoCarburante.Gasolina95);
+        await servicio.ObtenerGasolinerasCercaAsync("41", 37.388, -5.982, 10, TipoCarburante.Gasolina95);
+        await servicio.ObtenerGasolinerasCercaAsync("41", 37.388, -5.982, 10, TipoCarburante.Gasolina95);
 
         Assert.Equal(1, factory.Peticiones(FakeHttpClientFactory.ClienteGasolina));
     }
@@ -212,12 +198,12 @@ public class GasolinaServiceTests
         var factory = new FakeHttpClientFactory().RegistrarGasolina(handler);
         var servicio = Crear(factory);
 
-        await servicio.ObtenerGasolinerasCercaAsync("41", 37.388, -5.982, 10);
+        await servicio.ObtenerGasolinerasCercaAsync("41", 37.388, -5.982, 10, TipoCarburante.Gasolina95);
         handler.Responder = _ => RespuestasHttp.Ok(RespuestasJson.Precios(RespuestasJson.Estacion("NUEVA")));
-        var resultado = await servicio.ObtenerGasolinerasCercaAsync("41", 37.388, -5.982, 10);
+        var resultado = await servicio.ObtenerGasolinerasCercaAsync("41", 37.388, -5.982, 10, TipoCarburante.Gasolina95);
 
         Assert.Equal(1, factory.Peticiones(FakeHttpClientFactory.ClienteGasolina));
-        Assert.Equal("CACHEADA", Assert.Single(resultado.Gasolineras).Nombre);
+        Assert.Equal("CACHEADA", Assert.Single(resultado).Nombre);
     }
 
     [Fact]
@@ -228,12 +214,12 @@ public class GasolinaServiceTests
         var factory = new FakeHttpClientFactory().RegistrarGasolina(handler);
         var servicio = Crear(factory);
 
-        Assert.Empty((await servicio.ObtenerGasolinerasCercaAsync("41", 37.388, -5.982, 10)).Gasolineras);
+        Assert.Empty(await servicio.ObtenerGasolinerasCercaAsync("41", 37.388, -5.982, 10, TipoCarburante.Gasolina95));
 
         handler.Responder = _ => RespuestasHttp.Ok(RespuestasJson.Precios(RespuestasJson.Estacion("RECUPERADA")));
-        var recuperada = await servicio.ObtenerGasolinerasCercaAsync("41", 37.388, -5.982, 10);
+        var recuperada = await servicio.ObtenerGasolinerasCercaAsync("41", 37.388, -5.982, 10, TipoCarburante.Gasolina95);
 
-        Assert.Equal("RECUPERADA", Assert.Single(recuperada.Gasolineras).Nombre);
+        Assert.Equal("RECUPERADA", Assert.Single(recuperada).Nombre);
     }
 
     [Fact]
@@ -243,8 +229,8 @@ public class GasolinaServiceTests
         var factory = new FakeHttpClientFactory().RegistrarGasolina(handler);
         var servicio = Crear(factory);
 
-        await servicio.ObtenerGasolinerasCercaAsync("41", 37.388, -5.982, 10);
-        await servicio.ObtenerGasolinerasCercaAsync("11", 37.388, -5.982, 10);
+        await servicio.ObtenerGasolinerasCercaAsync("41", 37.388, -5.982, 10, TipoCarburante.Gasolina95);
+        await servicio.ObtenerGasolinerasCercaAsync("11", 37.388, -5.982, 10, TipoCarburante.Gasolina95);
 
         Assert.Equal(2, factory.Peticiones(FakeHttpClientFactory.ClienteGasolina));
     }
@@ -258,6 +244,6 @@ public class GasolinaServiceTests
         await cts.CancelAsync();
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(
-            () => Crear(factory).ObtenerGasolinerasCercaAsync("41", 37.388, -5.982, 10, cts.Token));
+            () => Crear(factory).ObtenerGasolinerasCercaAsync("41", 37.388, -5.982, 10, TipoCarburante.Gasolina95, cts.Token));
     }
 }

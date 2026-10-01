@@ -5,22 +5,22 @@ var builder = Host.CreateApplicationBuilder(args);
 
 const string UserAgent = "TelegramBot-DotNet/1.0";
 
-// Catálogo de municipios y previsión: se cachean en memoria, así que se registran como
-// singleton. AddHttpClient<T> crearía el servicio en cada request y tiraría la caché.
+// El tiempo y la previsión se cachean en memoria, así que se registran como singleton.
+// AddHttpClient<T> crearía el servicio en cada request y tiraría la caché.
 builder.Services.AddHttpClient(ElTiempoApi.NombreCliente, client =>
 {
     client.DefaultRequestHeaders.UserAgent.ParseAdd(UserAgent);
     client.Timeout = TimeSpan.FromSeconds(30);
 });
 
-builder.Services.AddHttpClient("miteco", client =>
+builder.Services.AddHttpClient(GasolinaService.NombreCliente, client =>
 {
     client.DefaultRequestHeaders.UserAgent.ParseAdd(UserAgent);
     client.Timeout = TimeSpan.FromSeconds(30);
 });
 
-builder.Services.AddSingleton<IMunicipioService, MunicipioService>();
 builder.Services.AddSingleton<IWeatherService, WeatherService>();
+builder.Services.AddSingleton<IPrediccionService, PrediccionService>();
 builder.Services.AddSingleton<IGasolinaService, GasolinaService>();
 
 builder.Services.AddSingleton<ITelegramBotClient>(sp =>

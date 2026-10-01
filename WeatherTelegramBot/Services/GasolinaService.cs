@@ -8,13 +8,14 @@ namespace WeatherTelegramBot.Services
 {
     /// <summary>
     /// Consulta los precios de carburantes al API REST del MITECO (Geoportal de
-    /// Hidrocarburos). Fuente oficial: https://datos.gob.es (CC BY 4.0), por lo que hay
-    /// que citar al Ministerio y mostrar la fecha de los datos.
+    /// Hidrocarburos). Fuente oficial: https://datos.gob.es (CC BY 4.0).
     /// </summary>
     public class GasolinaService : IGasolinaService
     {
         private const string BaseUrl = "https://sedeaplicaciones.minetur.gob.es/ServiciosRESTCarburantes/PreciosCarburantes";
-        private const string NombreClienteMiteco = "miteco";
+
+        /// <summary>Nombre del cliente HTTP configurado en Program.cs.</summary>
+        public const string NombreCliente = "miteco";
 
         /// <summary>El Ministerio refresca los precios cada media hora, así que 30 min es un TTL razonable.</summary>
         private static readonly TimeSpan CacheValidez = TimeSpan.FromMinutes(30);
@@ -31,7 +32,7 @@ namespace WeatherTelegramBot.Services
             _logger = logger;
         }
 
-        public async Task<ResultadoGasolineras> ObtenerGasolinerasCercaAsync(
+        public async Task<IReadOnlyList<Gasolinera>> ObtenerGasolinerasCercaAsync(
             string codProvincia,
             double latitud,
             double longitud,
@@ -39,7 +40,7 @@ namespace WeatherTelegramBot.Services
             TipoCarburante carburante,
             CancellationToken cancellationToken = default)
         {
-            var (estaciones, actualizado) = await ObtenerEstacionesAsync(codProvincia, cancellationToken);
+            var estaciones = await ObtenerEstacionesAsync(codProvincia, cancellationToken);
 
             var candidatas = new List<Gasolinera>();
             var vistas = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -67,16 +68,8 @@ namespace WeatherTelegramBot.Services
                 candidatas.Add(new Gasolinera(
                     Nombre: (estacion.Rotulo ?? "Sin rótulo").Trim(),
                     Direccion: (estacion.Direccion ?? "").Trim(),
-                    Municipio: (estacion.Municipio ?? "").Trim(),
-                    Latitud: estLat,
-                    Longitud: estLon,
-                    DistanciaKm: distancia,
-                    Carburante: carburante,
                     Precio: precio,
-                    PrecioGasolina95: TryParseDecimal(estacion.PrecioGasolina95, out double g95) ? g95 : null,
-                    PrecioGasolina98: TryParseDecimal(estacion.PrecioGasolina98, out double g98) ? g98 : null,
-                    PrecioGasoleoA: TryParseDecimal(estacion.PrecioGasoleoA, out double goa) ? goa : null,
-                    Horario: estacion.Horario));
+                    DistanciaKm: distancia));
             }
 
             var ordenadas = candidatas
@@ -88,7 +81,7 @@ namespace WeatherTelegramBot.Services
                 "Gasolineras de {Carburante} en {Provincia}: {Total} en el feed, {Cercanas} a menos de {Radio} km de ({Lat},{Lon})",
                 carburante.Nombre(), codProvincia, estaciones.Count, ordenadas.Count, radioKm, latitud, longitud);
 
-            return new ResultadoGasolineras(ordenadas, carburante, actualizado);
+            return ordenadas;
         }
 
         /// <summary>Columna del feed que corresponde al carburante pedido.</summary>
@@ -99,27 +92,27 @@ namespace WeatherTelegramBot.Services
                 _ => estacion.PrecioGasolina95
             };
 
-        private async Task<(IReadOnlyList<EstacionServicioDto> Estaciones, string? Actualizado)> ObtenerEstacionesAsync(
+        private async Task<IReadOnlyList<EstacionServicioDto>> ObtenerEstacionesAsync(
             string codProvincia,
             CancellationToken cancellationToken)
         {
             if (EsCacheValida(codProvincia))
-                return (_cache!.Estaciones, _cache.Actualizado);
+                return _cache!.Estaciones;
 
             await _cargaLock.WaitAsync(cancellationToken);
             try
             {
                 if (EsCacheValida(codProvincia))
-                    return (_cache!.Estaciones, _cache.Actualizado);
+                    return _cache!.Estaciones;
 
                 string url = $"{BaseUrl}/EstacionesTerrestres/FiltroProvincia/{codProvincia}";
-                var httpClient = _httpClientFactory.CreateClient(NombreClienteMiteco);
+                var httpClient = _httpClientFactory.CreateClient(NombreCliente);
 
                 using var response = await httpClient.GetAsync(url, cancellationToken);
                 if (!response.IsSuccessStatusCode)
                 {
                     _logger.LogError("El API de carburantes devolvió {StatusCode} al consultar {Url}", (int)response.StatusCode, url);
-                    return (Array.Empty<EstacionServicioDto>(), null);
+                    return Array.Empty<EstacionServicioDto>();
                 }
 
                 var datos = await response.Content
@@ -129,26 +122,26 @@ namespace WeatherTelegramBot.Services
                 if (datos?.ListaEESSPrecio is null || datos.ListaEESSPrecio.Count == 0)
                 {
                     _logger.LogError("El API de carburantes devolvió un listado vacío para la provincia {Provincia}", codProvincia);
-                    return (Array.Empty<EstacionServicioDto>(), datos?.Fecha);
+                    return Array.Empty<EstacionServicioDto>();
                 }
 
-                _cache = new CacheEstaciones(codProvincia, datos.Fecha, DateTimeOffset.UtcNow, datos.ListaEESSPrecio);
+                _cache = new CacheEstaciones(codProvincia, DateTimeOffset.UtcNow, datos.ListaEESSPrecio);
 
                 _logger.LogInformation(
                     "Precios de carburantes cargados: {Cantidad} estaciones en la provincia {Provincia} (MITECO {Fecha})",
                     datos.ListaEESSPrecio.Count, codProvincia, datos.Fecha);
 
-                return (_cache.Estaciones, _cache.Actualizado);
+                return _cache.Estaciones;
             }
             catch (HttpRequestException ex)
             {
                 _logger.LogError(ex, "Error de red al consultar los precios de carburantes");
-                return (Array.Empty<EstacionServicioDto>(), null);
+                return Array.Empty<EstacionServicioDto>();
             }
             catch (JsonException ex)
             {
                 _logger.LogError(ex, "Error al deserializar la respuesta de la API de carburantes");
-                return (Array.Empty<EstacionServicioDto>(), null);
+                return Array.Empty<EstacionServicioDto>();
             }
             finally
             {
@@ -198,7 +191,6 @@ namespace WeatherTelegramBot.Services
 
         private sealed record CacheEstaciones(
             string Provincia,
-            string? Actualizado,
             DateTimeOffset Cargada,
             IReadOnlyList<EstacionServicioDto> Estaciones);
     }
