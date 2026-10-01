@@ -523,7 +523,7 @@ namespace WeatherTelegramBot.Services
         /// barra como si fuera un comando y el mensaje llegaba con el comando colgando.
         /// </summary>
         internal static string FormatoPrecio(double eurosPorLitro) =>
-            $"{Formato(eurosPorLitro * PesetasPorEuro, 2)} pts por litro";
+            $"{Formato(eurosPorLitro * PesetasPorEuro, 2)} ptas por litro";
 
         /// <summary>
         /// Los rótulos vienen del MITECO y pueden llevar acentos, puntos o barras bajas
