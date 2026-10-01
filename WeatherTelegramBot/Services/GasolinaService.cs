@@ -39,9 +39,9 @@ namespace WeatherTelegramBot.Services
 
         public async Task<IReadOnlyList<Gasolinera>> ObtenerGasolinerasCercaAsync(
             string codProvincia,
+            string idMunicipio,
             double latitud,
             double longitud,
-            double radioKm,
             TipoCarburante carburante,
             CancellationToken cancellationToken = default)
         {
@@ -52,12 +52,13 @@ namespace WeatherTelegramBot.Services
 
             foreach (var estacion in estaciones)
             {
-                if (!TryParseDecimal(estacion.Latitud, out double estLat) ||
-                    !TryParseDecimal(estacion.Longitud, out double estLon))
+                // La pertenencia al municipio se decide con IDMunicipio y no con el nombre:
+                // el feed lo trae con tildes ("Alcalá de Guadaíra") y comparar textos es frágil.
+                if (!string.Equals(estacion.IdMunicipio, idMunicipio, StringComparison.Ordinal))
                     continue;
 
-                double distancia = DistanciaKm(latitud, longitud, estLat, estLon);
-                if (distancia > radioKm)
+                if (!TryParseDecimal(estacion.Latitud, out double estLat) ||
+                    !TryParseDecimal(estacion.Longitud, out double estLon))
                     continue;
 
                 if (!TryParseDecimal(PrecioPublicado(estacion, carburante), out double precio))
@@ -74,7 +75,7 @@ namespace WeatherTelegramBot.Services
                     Nombre: (estacion.Rotulo ?? "Sin rótulo").Trim(),
                     Direccion: (estacion.Direccion ?? "").Trim(),
                     Precio: precio,
-                    DistanciaKm: distancia));
+                    DistanciaKm: DistanciaKm(latitud, longitud, estLat, estLon)));
             }
 
             var ordenadas = candidatas
@@ -83,8 +84,8 @@ namespace WeatherTelegramBot.Services
                 .ToList();
 
             _logger.LogInformation(
-                "Gasolineras de {Carburante} en {Provincia}: {Total} en el feed, {Cercanas} a menos de {Radio} km de ({Lat},{Lon})",
-                carburante.Nombre(), codProvincia, estaciones.Count, ordenadas.Count, radioKm, latitud, longitud);
+                "Gasolineras de {Carburante} en {Provincia}: {Total} en el feed, {Cercanas} en el municipio {IdMunicipio} desde ({Lat},{Lon})",
+                carburante.Nombre(), codProvincia, estaciones.Count, ordenadas.Count, idMunicipio, latitud, longitud);
 
             return ordenadas;
         }

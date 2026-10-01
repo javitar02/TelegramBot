@@ -2,14 +2,17 @@ namespace WeatherTelegramBot.Services
 {
     /// <summary>
     /// Un pueblo al que el bot da servicio. Lleva el nombre porque la cabecera de los listados
-    /// lo anuncia, y las coordenadas porque las gasolineras se buscan por distancia.
+    /// lo anuncia, y las coordenadas porque las gasolineras se buscan por distancia. IdMunicipio
+    /// es el código que usa el MITECO en el feed de carburantes (no es el INE) y es lo que
+    /// filtra las estaciones del propio término municipal.
     /// </summary>
     internal readonly record struct Pueblo(
         string Nombre,
         string CodProvincia,
         string CodIne,
         double Latitud,
-        double Longitud);
+        double Longitud,
+        string IdMunicipio);
 
     /// <summary>
     /// El bot da servicio en Alcalá, pero por lo pedido, la mitad de las veces que se consulta
@@ -23,16 +26,18 @@ namespace WeatherTelegramBot.Services
             MunicipioAlcala.CodigoProvincia,
             MunicipioAlcala.CodigoIne,
             MunicipioAlcala.Latitud,
-            MunicipioAlcala.Longitud);
+            MunicipioAlcala.Longitud,
+            MunicipioAlcala.IdMunicipio);
 
         /// <summary>
         /// El INE abreviado a cinco dígitos es el que espera la URL de el-tiempo.net. Las
         /// coordenadas son el centroide del término municipal que publica esa misma API, el
-        /// mismo criterio con el que se calcularon las de Alcalá.
+        /// mismo criterio con el que se calcularon las de Alcalá. El IdMunicipio es el del
+        /// feed de carburantes del MITECO.
         /// </summary>
         private static readonly Pueblo[] Alternos =
         [
-            new("Guarromán", "23", "23039", 38.18148567, -3.68678524), // Jaén
+            new("Guarromán", "23", "23039", 38.18148567, -3.68678524, "3533"), // Jaén
         ];
 
         public static readonly IReadOnlyList<Pueblo> Todos = [Alcala, .. Alternos];

@@ -17,5 +17,12 @@ namespace WeatherTelegramBot.Services
         public const double Latitud = 37.463;
 
         public const double Longitud = -5.981;
+
+        /// <summary>
+        /// Identificador de municipio del feed de carburantes del MITECO. No es el INE (41004)
+        /// sino el código interno que usa el Ministerio, que es lo que viene en cada estación
+        /// como IDMunicipio. Sirve para quedarse solo con las gasolineras del término municipal.
+        /// </summary>
+        public const string IdMunicipio = "6058";
     }
 }

@@ -34,6 +34,26 @@ namespace WeatherTelegramBot.Models
             _ => "Gasolina 95 E5"
         };
 
+        /// <summary>
+        /// Nombre corto para la cabecera del listado, que solo lleva el tipo: allí la
+        /// graduación estorba ("Diesel", "Gasolina").
+        /// </summary>
+        public static string Titulo(this TipoCarburante tipo) => tipo switch
+        {
+            TipoCarburante.GasoleoA => "Diesel",
+            _ => "Gasolina"
+        };
+
+        /// <summary>
+        /// El carburante contrario: de diesel pasa a gasolina y viceversa. Así el botón
+        /// "Cambiar carburante" puede tener comportamiento de toggle automático.
+        /// </summary>
+        public static TipoCarburante Contrario(this TipoCarburante tipo) => tipo switch
+        {
+            TipoCarburante.GasoleoA => TipoCarburante.Gasolina95,
+            _ => TipoCarburante.GasoleoA
+        };
+
         public static string Boton(this TipoCarburante tipo) => tipo switch
         {
             TipoCarburante.GasoleoA => "🛢️ Diesel (Gasóleo A)",
