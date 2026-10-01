@@ -1,0 +1,25 @@
+## .NET
+bin/
+obj/
+[Dd]ebug/
+[Rr]elease/
+*.user
+*.suo
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
+## Entornos de Visual Studio
+.vs/
+*.sln.docstates
+
+## Secretos: el token del bot va en User Secrets
+## (dotnet user-secrets set "Telegram:TelegramBotToken" "<token>")
+secrets.json
+*.env
+
+## Resultados de tests y cobertura
+TestResults/
+*.coverage
+coverage*.xml
+coverage*.json
