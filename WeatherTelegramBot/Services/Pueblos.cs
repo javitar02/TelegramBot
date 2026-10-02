@@ -8,11 +8,19 @@ namespace WeatherTelegramBot.Services
     /// </summary>
     internal readonly record struct Pueblo(
         string Nombre,
+        string NombreProvincia,
         string CodProvincia,
         string CodIne,
         double Latitud,
         double Longitud,
-        string IdMunicipio);
+        string IdMunicipio)
+    {
+        /// <summary>
+        /// El nombre con la provincia detrás, para los encabezados donde el pueblo aparece
+        /// solo: sin provincia, Guarromán no dice de dónde es.
+        /// </summary>
+        public string NombreConProvincia => $"{Nombre} ({NombreProvincia})";
+    }
 
     /// <summary>
     /// El bot da servicio en Alcalá, pero por lo pedido, la mitad de las veces que se consulta
@@ -23,6 +31,7 @@ namespace WeatherTelegramBot.Services
     {
         public static readonly Pueblo Alcala = new(
             MunicipioAlcala.Nombre,
+            MunicipioAlcala.NombreProvincia,
             MunicipioAlcala.CodigoProvincia,
             MunicipioAlcala.CodigoIne,
             MunicipioAlcala.Latitud,
@@ -37,7 +46,7 @@ namespace WeatherTelegramBot.Services
         /// </summary>
         private static readonly Pueblo[] Alternos =
         [
-            new("Guarromán", "23", "23039", 38.18148567, -3.68678524, "3533"), // Jaén
+            new("Guarromán", "Jaén", "23", "23039", 38.18148567, -3.68678524, "3533"),
         ];
 
         public static readonly IReadOnlyList<Pueblo> Todos = [Alcala, .. Alternos];
@@ -60,5 +69,19 @@ namespace WeatherTelegramBot.Services
             Todos.FirstOrDefault(p => p.CodIne == codIne) is { } encontrado && encontrado != default
                 ? encontrado
                 : Alcala;
+
+        /// <summary>
+        /// Un pueblo que no sea el indicado, para el botón de cambiar de pueblo. Si el INE
+        /// recibido no está en la lista (o viene vacío, desde el mensaje de bienvenida) no
+        /// hay ninguno que excluir, así que vale cualquiera.
+        /// </summary>
+        public static Pueblo Otro(string codIne)
+        {
+            var candidatos = Todos.Where(p => p.CodIne != codIne).ToArray();
+
+            return candidatos.Length == 0
+                ? Elegir()
+                : candidatos[Random.Shared.Next(candidatos.Length)];
+        }
     }
 }

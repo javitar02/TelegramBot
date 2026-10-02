@@ -12,6 +12,8 @@ namespace WeatherTelegramBot.Services
 
         public const string Nombre = "Alcalá de Guadaíra";
 
+        public const string NombreProvincia = "Sevilla";
+
         public const string CodigoProvincia = "41";
 
         public const double Latitud = 37.463;
