@@ -20,30 +20,28 @@ namespace WeatherTelegramBot.Services
         private const string BotonGasofa = "⛽ Consultar Gasofa";
         private const string BotonMenu = "🏠 Menú principal";
         private const string BotonCambiarCarburante = "🔄 Cambiar carburante";
-        private const string BotonPrediccion = "📅 Ver predicción";
+        private const string BotonPrediccion = "🗓️ Predicción semanal";
 
         private const string CallbackMenu = "menu";
 
-        /// <summary>Clima de Alcalá, que ya no necesita el código INE en el callback.</summary>
+        /// <summary>
+        /// Clima del pueblo que se está viendo. Sin INE ("w") cuando se entra desde el menú y
+        /// el dado decide el pueblo; con INE ("w|41004") al volver desde la predicción, para
+        /// no cambiar de pueblo a media consulta.
+        /// </summary>
         private const string CallbackClima = "w";
 
         /// <summary>Pregunta con qué carburante comparar, antes de mostrar las gasolineras.</summary>
         private const string CallbackElegirCarburante = "tipo";
 
-        /// <summary>Gasolineras de Alcalá con el carburante elegido ("ga|95|pt").</summary>
+        /// <summary>Gasolineras del municipio con el carburante elegido ("ga|95").</summary>
         private const string CallbackGasolineras = "ga";
 
+        /// <summary>Predicción del pueblo que se está viendo ("pr|41004").</summary>
         private const string CallbackPrediccion = "pr";
 
-        /// <summary>Paginación del listado de gasolineras ("gl|41004|1|95|pt").</summary>
+        /// <summary>Paginación del listado de gasolineras ("gl|41004|1|95").</summary>
         private const string CallbackGasolinerasPagina = "gl";
-
-        /// <summary>
-        /// Alterna pesetas y euros sin salir del listado. Es una acción aparte y no un parámetro
-        /// de la paginación porque al pulsarla hay que recargar el precio: el callback lleva la
-        /// moneda nueva ya puesta, que es lo mismo que hace "gl" con la página.
-        /// </summary>
-        private const string CallbackGasolinerasMoneda = "gm";
 
         /// <summary>
         /// Pasa de un carburante al otro directamente, sin volver a preguntar: el botón sabe
@@ -179,34 +177,47 @@ namespace WeatherTelegramBot.Services
                     break;
 
                 case CallbackClima:
-                    await ReemplazarMensaje(chatId, messageId, await ObtenerTiempoAsync(cancellationToken), ConstruirTecladoClima(), cancellationToken);
-                    break;
+                {
+                    // Desde la fila principal no viene INE y el dado tira, pero al volver desde
+                    // la predicción sí viene y hay que recuperar el pueblo que se estaba viendo.
+                    var puebloDelClima = string.IsNullOrEmpty(Parte(1))
+                        ? Pueblos.Elegir()
+                        : Pueblos.PorIne(Parte(1));
 
-                case CallbackPrediccion:
                     await ReemplazarMensaje(
                         chatId,
                         messageId,
-                        await ObtenerPrediccionAsync(cancellationToken),
-                        TecladoAviso("🗺️ Volver al clima", CallbackClima),
+                        await ObtenerTiempoAsync(puebloDelClima.CodProvincia, puebloDelClima.CodIne, cancellationToken),
+                        TecladoAviso(BotonPrediccion, $"{CallbackPrediccion}|{puebloDelClima.CodIne}"),
                         cancellationToken);
                     break;
+                }
+
+                case CallbackPrediccion:
+                {
+                    var puebloPrediccion = Pueblos.PorIne(Parte(1));
+                    await ReemplazarMensaje(
+                        chatId,
+                        messageId,
+                        await ObtenerPrediccionAsync(puebloPrediccion, cancellationToken),
+                        TecladoAviso("🌤️ Volver al clima", $"{CallbackClima}|{puebloPrediccion.CodIne}"),
+                        cancellationToken);
+                    break;
+                }
 
                 case CallbackGasolineras:
                 case CallbackGasolinerasPagina:
-                case CallbackGasolinerasMoneda:
                 case CallbackGasolinerasCarburante:
-                    // El bot es stateless, así que carburante y moneda viajan en el propio callback:
-                    // "ga|95|pt" arranca el listado, "gl|41004|1|95|pt" lo pagina, "gm|41004|1|95|pt"
-                    // cambia la moneda y "gc|41004|1|95|pt" cambia el carburante. Las tres últimas
-                    // dejan el resto del listado intacto.
+                    // El bot es stateless, así que el carburante viaja en el propio callback:
+                    // "ga|95" arranca el listado, "gl|41004|1|95" lo pagina y "gc|41004|1|95"
+                    // cambia el carburante. Las dos últimas dejan el resto del listado intacto.
                     // "ga" es la única acción corta: no lleva INE ni página, así que sus campos
                     // van desplazados una posición respecto a las otras.
                     bool esContinuacion = accion != CallbackGasolineras;
                     var tipoElegido = TipoCarburanteExtensions.DesdeToken(Parte(esContinuacion ? 3 : 1));
                     if (tipoElegido is not { } tipo)
                     {
-                        var monedaFallida = MonedaExtensions.DesdeToken(Parte(esContinuacion ? 4 : 2)) ?? Moneda.Euros;
-                        await ReemplazarMensaje(chatId, messageId, PreguntaCarburante, TecladoCarburante(monedaFallida), cancellationToken);
+                        await ReemplazarMensaje(chatId, messageId, PreguntaCarburante, TecladoCarburante(), cancellationToken);
                         break;
                     }
 
@@ -216,37 +227,30 @@ namespace WeatherTelegramBot.Services
 
                     int pagina = esContinuacion && int.TryParse(Parte(2), out int gl) ? gl : 0;
 
-                    // Si no se reconoce el token (o no viene) se cae en euros, que es como
-                    // arranca siempre el listado; el botón es lo único que lleva a pesetas.
-                    var moneda = MonedaExtensions.DesdeToken(Parte(esContinuacion ? 4 : 2)) ?? Moneda.Euros;
-                    if (accion == CallbackGasolinerasMoneda)
-                        moneda = moneda.Contraria();
-
                     // El botón de carburante no pregunta: directamente invierte el que hay
                     // en pantalla, así que el listado sale ya con el otro combustible.
                     if (accion == CallbackGasolinerasCarburante)
                         tipo = tipo.Contrario();
 
-                    var gasolineras = await ConstruirTecladoGasolinerasAsync(pueblo, pagina, tipo, moneda, cancellationToken);
-                    await ReemplazarMensaje(chatId, messageId, gasolineras.Texto, gasolineras.Teclado, cancellationToken);
+                    var gasolineras = await ConstruirTecladoGasolinerasAsync(pueblo, pagina, tipo, cancellationToken);
+                    await ReemplazarMensaje(chatId, messageId, gasolineras.Texto, gasolineras.Teclado, cancellationToken, ParseMode.Html);
                     break;
 
                 case CallbackElegirCarburante:
-                    // El botón del menú va sin moneda, así que Parte(1) vacío cae en euros:
-                    // al entrar por el menú se empieza siempre en euros.
-                    await ReemplazarMensaje(
-                        chatId,
-                        messageId,
-                        PreguntaCarburante,
-                        TecladoCarburante(MonedaExtensions.DesdeToken(Parte(1)) ?? Moneda.Euros),
-                        cancellationToken);
+                    await ReemplazarMensaje(chatId, messageId, PreguntaCarburante, TecladoCarburante(), cancellationToken);
                     break;
             }
 
             await _botClient.AnswerCallbackQuery(callbackQuery.Id, cancellationToken: cancellationToken);
         }
 
-        private async Task ReemplazarMensaje(long chatId, int messageId, string texto, InlineKeyboardMarkup teclado, CancellationToken cancellationToken)
+        private async Task ReemplazarMensaje(
+            long chatId,
+            int messageId,
+            string texto,
+            InlineKeyboardMarkup teclado,
+            CancellationToken cancellationToken,
+            ParseMode parseMode = ParseMode.Markdown)
         {
             try
             {
@@ -254,7 +258,7 @@ namespace WeatherTelegramBot.Services
                     chatId: chatId,
                     messageId: messageId,
                     text: texto,
-                    parseMode: ParseMode.Markdown,
+                    parseMode: parseMode,
                     replyMarkup: teclado,
                     cancellationToken: cancellationToken
                 );
@@ -264,10 +268,6 @@ namespace WeatherTelegramBot.Services
                 // Telegram responde 400 si el teclado y el texto no han cambiado: es inocuo.
             }
         }
-
-        /// <summary>Teclado del clima de Alcalá: predicción y vuelta al menú.</summary>
-        internal static InlineKeyboardMarkup ConstruirTecladoClima() =>
-            TecladoAviso(BotonPrediccion, CallbackPrediccion);
 
         /// <summary>
         /// Fila de acceso directo a los dos menús. Se añade al pie de todos los teclados
@@ -312,17 +312,6 @@ namespace WeatherTelegramBot.Services
             return [.. navegacion];
         }
 
-        /// <summary>
-        /// Parte del clima. La mitad de las veces el dado saca un pueblo alterno, así que el
-        /// municipio se decide aquí y el render se delega en la sobrecarga de abajo.
-        /// </summary>
-        internal Task<string> ObtenerTiempoAsync(CancellationToken cancellationToken)
-        {
-            var pueblo = Pueblos.Elegir();
-
-            return ObtenerTiempoAsync(pueblo.CodProvincia, pueblo.CodIne, cancellationToken);
-        }
-
         internal async Task<string> ObtenerTiempoAsync(
             string codProvincia,
             string codIne,
@@ -333,36 +322,15 @@ namespace WeatherTelegramBot.Services
             if (clima?.Municipio is null || clima.Temperaturas is null || clima.EstadoCielo is null)
                 return "⚠️ No se pudo obtener la información del clima en este momento.";
 
-            return $"{EmojiCielo(clima.EstadoCielo.Descripcion)} **El tiempo en {clima.Municipio.Nombre}** ({clima.Municipio.NombreProvincia})\n\n" +
-                   $"• Estado: {clima.EstadoCielo.Descripcion}\n" +
-                   $"• Actual: {clima.TemperaturaActual}°C | Mín: {clima.Temperaturas.Minima}°C | Máx: {clima.Temperaturas.Maxima}°C\n" +
-                   $"• Humedad: {clima.Humedad}% | Viento: {clima.Viento} km/h\n" +
-                   $"• Precipitación: {clima.Precipitacion} mm\n" +
-                   $"• Actualizado: {clima.Elaborado}\n\n" +
-                   ConsejoCoche(clima.EstadoCielo.Descripcion, clima.Precipitacion);
-        }
+            var sb = new StringBuilder();
+            sb.AppendLine($"{EmojiCielo(clima.EstadoCielo.Descripcion)} **El tiempo en {clima.Municipio.Nombre}** ({clima.Municipio.NombreProvincia})");
+            sb.AppendLine();
+            sb.AppendLine($"• Estado: {clima.EstadoCielo.Descripcion}");
+            sb.AppendLine($"• Actual: {clima.TemperaturaActual}°C | Mín: {clima.Temperaturas.Minima}°C | Máx: {clima.Temperaturas.Maxima}°C");
+            sb.AppendLine($"• Humedad: {clima.Humedad}% | Viento: {clima.Viento} km/h");
+            sb.AppendLine($"• Precipitación: {clima.Precipitacion} mm");
 
-        /// <summary>
-        /// Última línea del parte: si el cielo lleva agua, lavar el coche es tirar el dinero.
-        /// Mira la descripción y no solo los milímetros, porque el MITECO publica "Cubierto
-        /// con lluvia escasa" con 0,0 mm acumulados.
-        /// </summary>
-        private static string ConsejoCoche(string? descripcion, string? precipitacion) =>
-            $"🚗 {(VaAGover(descripcion, precipitacion) ? "**BAJO NINGÚN CONCEPTO lave el coche**" : "**Lave el coche**")}";
-
-        private static readonly string[] PalabrasDeAgua =
-            ["lluvia", "chubasco", "tormenta", "nieve", "granizo", "aguacero", "orballo"];
-
-        private static bool VaAGover(string? descripcion, string? precipitacion)
-        {
-            if (double.TryParse(precipitacion, NumberStyles.Any, CultureInfo.InvariantCulture, out var milimetros)
-                && milimetros > 0)
-            {
-                return true;
-            }
-
-            return PalabrasDeAgua.Any(palabra =>
-                descripcion?.Contains(palabra, StringComparison.OrdinalIgnoreCase) == true);
+            return sb.ToString();
         }
 
         /// <summary>
@@ -397,120 +365,125 @@ namespace WeatherTelegramBot.Services
             return "🌤️";
         }
 
+        /// <summary>Encabezado del mensaje de predicción.</summary>
+        private static string TituloPrediccion =>
+            "🗓️ **PREDICCIÓN SEMANAL**";
+
         /// <summary>
-        /// Texto del menú de predicción: el desglose por horas del día en curso y el resumen
-        /// de los días siguientes, ya normalizado por <see cref="PrediccionService"/>.
+        /// Mensaje de la predicción semanal, en su propia pantalla: un día por bloque, con el
+        /// icono junto al nombre del día y los datos debajo. Va separado del parte del clima
+        /// porque son dos consultas distintas y así el botón de atrás va a donde toca.
         /// </summary>
-        internal async Task<string> ObtenerPrediccionAsync(CancellationToken cancellationToken)
+        /// <param name="pueblo">
+        /// El mismo pueblo que sale en el parte del clima, que viaja en el callback: si la
+        /// predicción saliera de Alcalá y el clima de otro sitio, el botón de "volver" rompería.
+        /// </param>
+        internal async Task<string> ObtenerPrediccionAsync(Pueblo pueblo, CancellationToken cancellationToken)
         {
             var prediccion = await _prediccionService.ObtenerPrediccionAsync(
-                MunicipioAlcala.CodigoProvincia, MunicipioAlcala.CodigoIne, cancellationToken);
+                pueblo.CodProvincia, pueblo.CodIne, cancellationToken);
 
-            if (prediccion is null || (prediccion.Horarios.Count == 0 && prediccion.Dias.Count == 0))
-                return $"⚠️ No se pudo obtener la predicción para {MunicipioAlcala.Nombre} en este momento.";
-
-            var sb = new StringBuilder();
-            sb.AppendLine($"📅 **Predicción en {Escapar(prediccion.Nombre)}**");
-
-            sb.AppendLine();
-            sb.AppendLine("🕐 **Hoy por horas**");
-            if (prediccion.Horarios.Count == 0)
-            {
-                sb.AppendLine("Sin detalle horario disponible.");
-            }
-            else
-            {
-                foreach (var tramo in prediccion.Horarios)
-                {
-                    string hora = tramo.Hora is { Length: >= 2 } ? tramo.Hora[..2] : "--";
-                    string cielo = Escapar(tramo.Cielo);
-                    if (string.IsNullOrWhiteSpace(cielo))
-                        cielo = "Variable";
-
-                    var partes = new List<string> { $"{hora}h {EmojiCielo(cielo)} {cielo}" };
-                    if (tramo.Temperatura is { } temperatura)
-                        partes.Add($"{Formato(temperatura, 0)}°C");
-                    if (tramo.Sensacion is { } sensacion && Math.Abs(sensacion - (tramo.Temperatura ?? sensacion)) >= 1)
-                        partes.Add($"sens. {Formato(sensacion, 0)}°");
-                    if (tramo.VientoDireccion is { Length: > 0 } && tramo.VientoVelocidad is { } velocidad)
-                        partes.Add($"{tramo.VientoDireccion} {Formato(velocidad, 0)} km/h");
-
-                    sb.AppendLine($"• {string.Join(" · ", partes)}");
-                }
-            }
+            if (prediccion is null || prediccion.Dias.Count == 0)
+                return $"⚠️ No se pudo obtener la predicción para {pueblo.Nombre} en este momento.";
 
             var dias = prediccion.Dias.Skip(1).ToArray();
-            if (dias.Length > 0)
+
+            var sb = new StringBuilder();
+            sb.AppendLine(TituloPrediccion);
+            sb.AppendLine($"en {Escapar(prediccion.Nombre)}");
+
+            foreach (var dia in dias)
             {
                 sb.AppendLine();
-                sb.AppendLine("🗓️ **Próximos días**");
-                foreach (var dia in dias)
-                    sb.AppendLine($"• {EtiquetaDia(dia)}");
+                sb.Append(EtiquetaDia(dia));
             }
 
-            if (!string.IsNullOrWhiteSpace(prediccion.Elaborado))
-                sb.AppendLine($"\nActualizado: {Escapar(prediccion.Elaborado)}");
+            // Con dos o más días mojados la semana ya no da ventana: el aviso va al final,
+            // separado de los bloques, para que se lea como conclusión y no como otro día.
+            if (dias.Count(DiaMojado) >= MinimosDiasMojados)
+            {
+                sb.AppendLine();
+                sb.AppendLine(ConsejoLavarCoche);
+            }
 
             return sb.ToString();
         }
 
+        /// <summary>Umbral de probabilidad a partir del cual el día cuenta como mojado.</summary>
+        private const double UmbralLluvia = 60;
+
+        /// <summary>Días con lluvia probable a partir de los cuales no merece la pena lavar.</summary>
+        private const int MinimosDiasMojados = 2;
+
+        private const string ConsejoLavarCoche = "🚗 **Se recomienda lavar el coche**";
+
+        private static bool DiaMojado(DiaPrediccion dia) => dia.ProbPrecipitacion is { } probabilidad && probabilidad > UmbralLluvia;
+
         private static string EtiquetaDia(DiaPrediccion dia)
         {
             string cielo = Escapar(dia.Cielo);
-            var partes = new List<string>
-            {
-                $"{EmojiCielo(cielo)} {FormatoDia(dia.Fecha)}"
-            };
+            var sb = new StringBuilder();
+
+            sb.AppendLine($"{EmojiCielo(cielo)} **{FormatoDiaCompleto(dia.Fecha)}**");
 
             if (dia.Maxima is { } maxima && dia.Minima is { } minima)
-                partes.Add($"{Formato(minima, 0)}° / {Formato(maxima, 0)}°C");
+            {
+                sb.AppendLine($"• Máxima: {Formato(maxima, 0)}°C");
+                sb.AppendLine($"• Mínima: {Formato(minima, 0)}°C");
+            }
             else if (dia.Maxima is { } soloMaxima)
-                partes.Add($"máx. {Formato(soloMaxima, 0)}°C");
+            {
+                sb.AppendLine($"• Máxima: {Formato(soloMaxima, 0)}°C");
+            }
+            else if (dia.Minima is { } soloMinima)
+            {
+                sb.AppendLine($"• Mínima: {Formato(soloMinima, 0)}°C");
+            }
 
-            if (!string.IsNullOrWhiteSpace(cielo))
-                partes.Add(cielo);
             if (dia.ProbPrecipitacion is { } probabilidad)
-                partes.Add($"lluvia {Formato(probabilidad, 0)}%");
-            if (dia.Viento is { } viento)
-                partes.Add($"viento {Formato(viento, 0)} km/h");
-            if (dia.RachaMax is { } racha)
-                partes.Add($"racha {Formato(racha, 0)} km/h");
+                sb.AppendLine($"• Probabilidad de lluvia: {Formato(probabilidad, 0)}%");
 
-            return string.Join(" · ", partes);
+            if (dia.Viento is { } viento)
+                sb.AppendLine($"• Viento: {Formato(viento, 0)} km/h");
+            if (dia.RachaMax is { } racha)
+                sb.AppendLine($"• Racha máxima: {Formato(racha, 0)} km/h");
+
+            return sb.ToString();
         }
 
-        /// <summary>Fecha corta y legible: "vie 3 oct".</summary>
-        internal static string FormatoDia(DateOnly fecha)
+        /// <summary>Fecha completa y legible: "Viernes 2 de octubre".</summary>
+        internal static string FormatoDiaCompleto(DateOnly fecha)
         {
-            string dia = fecha.DayOfWeek switch
+            string diaSemana = fecha.DayOfWeek switch
             {
-                DayOfWeek.Monday => "lun",
-                DayOfWeek.Tuesday => "mar",
-                DayOfWeek.Wednesday => "mié",
-                DayOfWeek.Thursday => "jue",
-                DayOfWeek.Friday => "vie",
-                DayOfWeek.Saturday => "sáb",
-                _ => "dom"
+                DayOfWeek.Monday => "Lunes",
+                DayOfWeek.Tuesday => "Martes",
+                DayOfWeek.Wednesday => "Miércoles",
+                DayOfWeek.Thursday => "Jueves",
+                DayOfWeek.Friday => "Viernes",
+                DayOfWeek.Saturday => "Sábado",
+                _ => "Domingo"
             };
 
-            return $"{dia} {fecha.Day} {fecha.ToString("MMM", CultureEspanol)}";
+            string mes = fecha.ToString("MMMM", CultureEspanol);
+            return $"{diaSemana} {fecha.Day} de {mes}";
         }
 
         /// <summary>
-        /// Pregunta con qué carburante comparar antes de mostrar las gasolineras. El tipo y la
-        /// moneda se eligen una vez y a partir de ahí viajan en el callbackData de cada botón.
-        /// El pueblo no se anuncia aquí porque todavía no se ha tirado el dado.
+        /// Pregunta con qué carburante comparar antes de mostrar las gasolineras. El tipo se
+        /// elige una vez y a partir de ahí viaja en el callbackData de cada botón. El pueblo
+        /// no se anuncia aquí porque todavía no se ha tirado el dado.
         /// </summary>
         internal static string PreguntaCarburante { get; } =
             "⛽ **¿Qué carburante quieres consultar?**\n\n" +
             "Te paso las gasolineras más baratas del municipio, ordenadas de más barata a más cara.";
 
-        /// <summary>Teclado de la pregunta. La moneda solo cambia qué botones habrá después.</summary>
-        internal static InlineKeyboardMarkup TecladoCarburante(Moneda moneda) =>
+        /// <summary>Teclado de la pregunta de carburante.</summary>
+        internal static InlineKeyboardMarkup TecladoCarburante() =>
             new(
             [
-                [new InlineKeyboardButton(TipoCarburante.Gasolina95.Boton()) { CallbackData = $"{CallbackGasolineras}|{TipoCarburante.Gasolina95.Token()}|{moneda.Token()}" }],
-                [new InlineKeyboardButton(TipoCarburante.GasoleoA.Boton()) { CallbackData = $"{CallbackGasolineras}|{TipoCarburante.GasoleoA.Token()}|{moneda.Token()}" }],
+                [new InlineKeyboardButton(TipoCarburante.Gasolina95.Boton()) { CallbackData = $"{CallbackGasolineras}|{TipoCarburante.Gasolina95.Token()}" }],
+                [new InlineKeyboardButton(TipoCarburante.GasoleoA.Boton()) { CallbackData = $"{CallbackGasolineras}|{TipoCarburante.GasoleoA.Token()}" }],
                 ConstruirFilaPrincipal()
             ]);
 
@@ -519,14 +492,12 @@ namespace WeatherTelegramBot.Services
 
         /// <summary>
         /// Gasolineras cerca del pueblo tocado por el dado. El pueblo llega como parámetro y no
-        /// se tira aquí porque al paginar tiene que ser el mismo de la primera página. La moneda
-        /// tampoco se tira: viaja en el callback para que el botón la alterne sin perder la página.
+        /// se tira aquí porque al paginar tiene que ser el mismo de la primera página.
         /// </summary>
         internal async Task<(string Texto, InlineKeyboardMarkup Teclado)> ConstruirTecladoGasolinerasAsync(
             Pueblo pueblo,
             int pagina,
             TipoCarburante carburante,
-            Moneda moneda,
             CancellationToken cancellationToken)
         {
             var gasolineras = await _gasolinaService.ObtenerGasolinerasCercaAsync(
@@ -539,13 +510,13 @@ namespace WeatherTelegramBot.Services
 
             if (gasolineras.Count == 0)
                 return ($"⛽ No hay gasolineras con precio de {carburante.Nombre()} en {pueblo.Nombre}.",
-                        new InlineKeyboardMarkup(FilasOpciones(pueblo, pagina, carburante, moneda)));
+                        new InlineKeyboardMarkup(FilasOpciones(pueblo, pagina, carburante)));
 
             int totalPaginas = (int)Math.Ceiling(gasolineras.Count / (double)GasolinerasPorPagina);
             pagina = Math.Clamp(pagina, 0, totalPaginas - 1);
 
             var sb = new StringBuilder();
-            sb.AppendLine($"⛽ **Gasolineras {pueblo.Nombre}**");
+            sb.AppendLine($"⛽ <b>Gasolineras {EscaparHtml(pueblo.Nombre)}</b>");
             sb.AppendLine(carburante.Titulo());
 
             var paginaActual = gasolineras
@@ -556,40 +527,67 @@ namespace WeatherTelegramBot.Services
             foreach (var gasolinera in paginaActual)
             {
                 posicion++;
-                sb.AppendLine($"{posicion}. **{Escapar(gasolinera.Nombre)}** — **{FormatoPrecio(gasolinera.Precio, moneda)}**");
-                sb.AppendLine($"   {Escapar(gasolinera.Direccion)}");
+                sb.AppendLine($"{posicion}. <b>{EscaparHtml(gasolinera.Nombre)}</b> — <b>{FormatoPrecio(gasolinera.Precio)}</b>");
+                sb.AppendLine($"   {EnlaceMapa(gasolinera)}");
             }
 
             var filas = new List<InlineKeyboardButton[]>();
             if (totalPaginas > 1)
             {
                 filas.Add(ConstruirFilaNavegacion(
-                    p => $"{CallbackGasolinerasPagina}|{pueblo.CodIne}|{p}|{carburante.Token()}|{moneda.Token()}",
+                    p => $"{CallbackGasolinerasPagina}|{pueblo.CodIne}|{p}|{carburante.Token()}",
                     pagina,
                     totalPaginas));
             }
 
-            filas.AddRange(FilasOpciones(pueblo, pagina, carburante, moneda));
+            filas.AddRange(FilasOpciones(pueblo, pagina, carburante));
 
             return (sb.ToString(), new InlineKeyboardMarkup(filas));
         }
 
         /// <summary>
-        /// Botones de debajo del listado de gasolineras: cambiar de moneda, cambiar de
-        /// carburante y volver al menú. El pueblo ya lo ha fijado el dado, así que no tiene
-        /// sentido un botón para cambiar de municipio, y el clima se alcanza desde la fila
-        /// principal de abajo. La moneda y el carburante viajan en el callback porque el bot
-        /// es stateless: los dos botones intercambian su valor en lugar de preguntar.
+        /// La dirección se muestra como enlace a Google Maps. Se busca por coordenadas y no
+        /// por la dirección textual porque las del feed vienen sin número en muchos casos y
+        /// el mapa acabaría en la calle equivocada. El formato de URL es el oficial de Google
+        /// Maps y abre la app en el móvil en lugar del navegador.
+        /// </summary>
+        private static string EnlaceMapa(Gasolinera gasolinera)
+        {
+            string coordenadas = $"{gasolinera.Latitud.ToString(CultureInfo.InvariantCulture)}," +
+                                 $"{gasolinera.Longitud.ToString(CultureInfo.InvariantCulture)}";
+
+            string url = $"https://maps.google.com/?q={coordenadas}";
+
+            // Sin dirección no hay línea que enseñar: mejor un enlace vacío que un underline
+            // sin destino, así que se cae al rótulo de la estación.
+            string etiqueta = string.IsNullOrWhiteSpace(gasolinera.Direccion)
+                ? $"📍 {EscaparHtml(gasolinera.Nombre)}"
+                : EscaparHtml(gasolinera.Direccion);
+
+            return $"<a href=\"{url}\">{etiqueta}</a>";
+        }
+
+        /// <summary>
+        /// El listado de gasolineras se manda en HTML y no en Markdown porque el Markdown
+        /// clásico de Telegram no sabe hyperlinkear. Aquí hay que escapar los tags.
+        /// </summary>
+        internal static string EscaparHtml(string texto) =>
+            texto.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;");
+
+        /// <summary>
+        /// Botones de debajo del listado de gasolineras: cambiar de carburante y volver al
+        /// menú. El pueblo ya lo ha fijado el dado, así que no tiene sentido un botón para
+        /// cambiar de municipio, y el clima se alcanza desde la fila principal de abajo. El
+        /// carburante viaja en el callback porque el bot es stateless: el botón invierte el
+        /// valor en lugar de preguntar.
         /// </summary>
         private static List<InlineKeyboardButton[]> FilasOpciones(
             Pueblo pueblo,
             int pagina,
-            TipoCarburante carburante,
-            Moneda moneda) =>
+            TipoCarburante carburante) =>
         [
             [
-                new InlineKeyboardButton(moneda.Boton()) { CallbackData = $"{CallbackGasolinerasMoneda}|{pueblo.CodIne}|{pagina}|{carburante.Token()}|{moneda.Token()}" },
-                new InlineKeyboardButton(BotonCambiarCarburante) { CallbackData = $"{CallbackGasolinerasCarburante}|{pueblo.CodIne}|{pagina}|{carburante.Token()}|{moneda.Token()}" }
+                new InlineKeyboardButton(BotonCambiarCarburante) { CallbackData = $"{CallbackGasolinerasCarburante}|{pueblo.CodIne}|{pagina}|{carburante.Token()}" }
             ],
             [new InlineKeyboardButton(BotonMenu) { CallbackData = CallbackMenu }],
             ConstruirFilaPrincipal()
@@ -600,7 +598,7 @@ namespace WeatherTelegramBot.Services
         /// <summary>
         /// 1 euro son 166,386 pesetas desde 1998, así que la conversión es fija y no hace
         /// falta ir a buscar un tipo de cambio. El MITECO manda el precio en euros por litro y
-        /// el bot lo enseña en pesetas o en euros, según el botón que se haya pulsado.
+        /// el bot lo enseña siempre en pesetas.
         /// </summary>
         internal const double PesetasPorEuro = 166.386;
 
@@ -608,11 +606,8 @@ namespace WeatherTelegramBot.Services
         /// El precio se escribe sin la barra de "€/L": Telegram se come lo que va detrás de una
         /// barra como si fuera un comando y el mensaje llegaba con el comando colgando.
         /// </summary>
-        internal static string FormatoPrecio(double eurosPorLitro, Moneda moneda) => moneda switch
-        {
-            Moneda.Euros => $"{Formato(eurosPorLitro, 3)} € por litro",
-            _ => $"{Formato(eurosPorLitro * PesetasPorEuro, 2)} ptas por litro"
-        };
+        internal static string FormatoPrecio(double eurosPorLitro) =>
+            $"{Formato(eurosPorLitro * PesetasPorEuro, 2)} ptas por litro";
 
         /// <summary>
         /// Los rótulos vienen del MITECO y pueden llevar acentos, puntos o barras bajas

@@ -76,7 +76,9 @@ namespace WeatherTelegramBot.Services
                     Nombre: (estacion.Rotulo ?? "Sin rótulo").Trim(),
                     Direccion: (estacion.Direccion ?? "").Trim(),
                     Precio: precio,
-                    DistanciaKm: DistanciaKm(latitud, longitud, estLat, estLon)));
+                    DistanciaKm: DistanciaKm(latitud, longitud, estLat, estLon),
+                    Latitud: estLat,
+                    Longitud: estLon));
             }
 
             var ordenadas = candidatas
