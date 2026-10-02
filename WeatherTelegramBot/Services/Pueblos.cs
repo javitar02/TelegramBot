@@ -71,8 +71,8 @@ namespace WeatherTelegramBot.Services
                 : Alcala;
 
         /// <summary>
-        /// Un pueblo que no sea el indicado, para el botón de cambiar de pueblo. Si el INE
-        /// recibido no está en la lista (o viene vacío, desde el mensaje de bienvenida) no
+        /// Un pueblo que no sea el indicado, para el botón de cambiar de pueblo: si saliera
+        /// el mismo, el botón parecería estropeado. Si el INE recibido no está en la lista no
         /// hay ninguno que excluir, así que vale cualquiera.
         /// </summary>
         public static Pueblo Otro(string codIne)

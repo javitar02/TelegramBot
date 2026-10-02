@@ -14,6 +14,10 @@ namespace WeatherTelegramBot.Services
 {
     public class TelegramBotService : BackgroundService
     {
+        /// <summary>
+        /// Gasolineras que caben en un mensaje. El listado no se pagina: se enseña este tope y
+        /// se avisa de cuántas se quedan fuera.
+        /// </summary>
         private const int GasolinerasPorPagina = 15;
 
         private const string BotonClima = "☀️ Consultar Clima";
@@ -21,7 +25,6 @@ namespace WeatherTelegramBot.Services
         private const string BotonMenu = "🏠 Menú principal";
         private const string BotonCambiarPueblo = "🔄 Cambiar pueblo";
         private const string BotonCambiarCarburante = "🔄 Cambiar carburante";
-        private const string BotonPrediccion = "🗓️ Predicción semanal";
 
         /// <summary>
         /// Vuelve al mensaje de bienvenida. Es la única salida del flujo de gasofa, así que
@@ -30,17 +33,15 @@ namespace WeatherTelegramBot.Services
         private const string CallbackMenu = "menu";
 
         /// <summary>
-        /// Tira el dado de nuevo y enseña el clima del pueblo que salga ("cp|41004"). El INE
-        /// viaja solo para poder pedir un pueblo distinto del que se está viendo: sin él el
-        /// botón podría volver a caer en el mismo y parecería estropeado. Sin INE, desde el
-        /// mensaje de bienvenida, cualquier pueblo vale.
+        /// Pide otro pueblo y vuelve a pintar su parte del tiempo ("cp|41004"). El INE es el
+        /// del pueblo que se está viendo, para poder exigir uno distinto: si no, el botón
+        /// podría volver a caer en el mismo y parecería estropeado.
         /// </summary>
         private const string CallbackCambiarPueblo = "cp";
 
         /// <summary>
         /// Clima del pueblo que se está viendo. Sin INE ("w") cuando se entra desde el menú y
-        /// el dado decide el pueblo; con INE ("w|41004") al volver desde la predicción, para
-        /// no cambiar de pueblo a media consulta.
+        /// el dado decide el pueblo; con INE ("w|41004") al volver desde otro pueblo.
         /// </summary>
         private const string CallbackClima = "w";
 
@@ -50,17 +51,18 @@ namespace WeatherTelegramBot.Services
         /// <summary>Gasolineras del municipio con el carburante elegido ("ga|95").</summary>
         private const string CallbackGasolineras = "ga";
 
-        /// <summary>Predicción del pueblo que se está viendo ("pr|41004").</summary>
-        private const string CallbackPrediccion = "pr";
-
-        /// <summary>Paginación del listado de gasolineras ("gl|41004|1|95").</summary>
-        private const string CallbackGasolinerasPagina = "gl";
-
         /// <summary>
         /// Pasa de un carburante al otro directamente, sin volver a preguntar: el botón sabe
         /// por el callback cuál se está viendo y solo tiene que invertirlo.
         /// </summary>
         private const string CallbackGasolinerasCarburante = "gc";
+
+        /// <summary>
+        /// Cambia de municipio sin salir del listado ("gp|41004|95"). El INE que viaja es el
+        /// del pueblo que se está viendo, para poder pedir uno distinto: el handler lo cambia
+        /// por otro y reconstruye el listado con el mismo carburante.
+        /// </summary>
+        private const string CallbackGasolinerasPueblo = "gp";
 
         // En los custom format de .NET la coma es separador de millares, no decimal:
         // hay que pedir la cultura española y usar F1/F2/F3 para obtener "3,4" y "1,799".
@@ -181,23 +183,19 @@ namespace WeatherTelegramBot.Services
 
             switch (accion)
             {
-                case "noop":
-                    await _botClient.AnswerCallbackQuery(callbackQuery.Id, text: $"Ya estás en la página {Parte(1)}.", cancellationToken: cancellationToken);
-                    return;
-
                 case CallbackMenu:
                     await ReemplazarMensaje(chatId, messageId, Bienvenida, TecladoInicio(), cancellationToken);
                     break;
 
                 case CallbackCambiarPueblo:
-                    // El pueblo cambia siempre: se enseña su clima y desde ahí el resto de
-                    // botones arrastran su INE, así que la predicción y las gasolineras salen
-                    // del pueblo nuevo sin volver a pedir nada.
+                    // El pueblo nuevo se elige ahora, no al pintar: a partir de aquí su INE
+                    // viaja en todos los botones, así que la predicción que se lee debajo del
+                    // clima y el resto de consultas salen de él sin volver a tirar el dado.
                     var puebloNuevo = Pueblos.Otro(Parte(1));
                     await ReemplazarMensaje(
                         chatId,
                         messageId,
-                        await ObtenerTiempoAsync(puebloNuevo.CodProvincia, puebloNuevo.CodIne, cancellationToken),
+                        await ObtenerTiempoAsync(puebloNuevo, cancellationToken),
                         TecladoClima(puebloNuevo),
                         cancellationToken);
                     break;
@@ -205,7 +203,7 @@ namespace WeatherTelegramBot.Services
                 case CallbackClima:
                 {
                     // Desde la fila principal no viene INE y el dado tira, pero al volver desde
-                    // la predicción sí viene y hay que recuperar el pueblo que se estaba viendo.
+                    // el cambio de pueblo sí viene y hay que recuperar el que se estaba viendo.
                     var puebloDelClima = string.IsNullOrEmpty(Parte(1))
                         ? Pueblos.Elegir()
                         : Pueblos.PorIne(Parte(1));
@@ -213,52 +211,43 @@ namespace WeatherTelegramBot.Services
                     await ReemplazarMensaje(
                         chatId,
                         messageId,
-                        await ObtenerTiempoAsync(puebloDelClima.CodProvincia, puebloDelClima.CodIne, cancellationToken),
+                        await ObtenerTiempoAsync(puebloDelClima, cancellationToken),
                         TecladoClima(puebloDelClima),
                         cancellationToken);
                     break;
                 }
 
-                case CallbackPrediccion:
-                {
-                    var puebloPrediccion = Pueblos.PorIne(Parte(1));
-                    await ReemplazarMensaje(
-                        chatId,
-                        messageId,
-                        await ObtenerPrediccionAsync(puebloPrediccion, cancellationToken),
-                        TecladoAviso("🌤️ Volver al clima", $"{CallbackClima}|{puebloPrediccion.CodIne}", puebloPrediccion),
-                        cancellationToken);
-                    break;
-                }
-
                 case CallbackGasolineras:
-                case CallbackGasolinerasPagina:
                 case CallbackGasolinerasCarburante:
+                case CallbackGasolinerasPueblo:
                     // El bot es stateless, así que el carburante viaja en el propio callback:
-                    // "ga|95" arranca el listado, "gl|41004|1|95" lo pagina y "gc|41004|1|95"
-                    // cambia el carburante. Las dos últimas dejan el resto del listado intacto.
-                    // "ga" es la única acción corta: no lleva INE ni página, así que sus campos
-                    // van desplazados una posición respecto a las otras.
+                    // "ga|95" arranca el listado, "gc|41004|95" cambia el carburante y
+                    // "gp|41004|95" cambia de municipio, sin tocar el resto del listado. "ga" es
+                    // la única acción corta: no lleva INE, así que sus campos van desplazados
+                    // una posición respecto a las otras dos.
                     bool esContinuacion = accion != CallbackGasolineras;
-                    var tipoElegido = TipoCarburanteExtensions.DesdeToken(Parte(esContinuacion ? 3 : 1));
+                    var tipoElegido = TipoCarburanteExtensions.DesdeToken(Parte(esContinuacion ? 2 : 1));
                     if (tipoElegido is not { } tipo)
                     {
                         await ReemplazarMensaje(chatId, messageId, PreguntaCarburante, TecladoCarburante(), cancellationToken);
                         break;
                     }
 
-                    // Al arrancar se tira el dado, pero al paginar manda el INE del callback:
-                    // si no, la página 2 podría salir de un pueblo distinto al de la página 1.
+                    // Al arrancar se tira el dado, pero en las otras dos manda el INE del
+                    // callback: si no, el listado podría cambiar de pueblo a media consulta.
                     var pueblo = esContinuacion ? Pueblos.PorIne(Parte(1)) : Pueblos.Elegir();
-
-                    int pagina = esContinuacion && int.TryParse(Parte(2), out int gl) ? gl : 0;
 
                     // El botón de carburante no pregunta: directamente invierte el que hay
                     // en pantalla, así que el listado sale ya con el otro combustible.
                     if (accion == CallbackGasolinerasCarburante)
                         tipo = tipo.Contrario();
 
-                    var gasolineras = await ConstruirTecladoGasolinerasAsync(pueblo, pagina, tipo, cancellationToken);
+                    // El de pueblo tampoco: se pide otro distinto del que se está viendo, que
+                    // viaja en el INE del callback.
+                    if (accion == CallbackGasolinerasPueblo)
+                        pueblo = Pueblos.Otro(pueblo.CodIne);
+
+                    var gasolineras = await ConstruirTecladoGasolinerasAsync(pueblo, tipo, cancellationToken);
                     await ReemplazarMensaje(chatId, messageId, gasolineras.Texto, gasolineras.Teclado, cancellationToken, ParseMode.Html);
                     break;
 
@@ -296,27 +285,15 @@ namespace WeatherTelegramBot.Services
         }
 
         /// <summary>
-        /// Fila de acceso directo al clima, a la gasofa y al cambio de pueblo. Se añade al pie
-        /// de los teclados de clima y predicción para que se pueda cambiar de consulta sin
-        /// volver al mensaje de bienvenida, y sustituye el reply keyboard: los botones inline
-        /// no desaparecen al enviar otro mensaje. El flujo de gasofa no la usa: ahí solo caben
-        /// sus propios botones y la vuelta al menú.
+        /// Fila de acceso directo del mensaje de bienvenida a las dos consultas. Sustituye al
+        /// reply keyboard: los botones inline no desaparecen al enviar otro mensaje. Cada
+        /// pantalla posterior lleva solo lo suyo, sin repetir estas dos.
         /// </summary>
-        private static InlineKeyboardButton[] ConstruirFilaPrincipal(string? codIneActual)
-        {
-            // Sin pueblo todavía (mensaje de bienvenida) el callback va suelto: al pulsarlo
-            // sale el que toque, porque no hay ninguno al que cambiar.
-            string callbackCambiar = codIneActual is { Length: > 0 } ine
-                ? $"{CallbackCambiarPueblo}|{ine}"
-                : CallbackCambiarPueblo;
-
-            return
-            [
-                new InlineKeyboardButton(BotonClima) { CallbackData = CallbackClima },
-                new InlineKeyboardButton(BotonGasofa) { CallbackData = CallbackElegirCarburante },
-                new InlineKeyboardButton(BotonCambiarPueblo) { CallbackData = callbackCambiar }
-            ];
-        }
+        private static InlineKeyboardButton[] ConstruirFilaPrincipal() =>
+        [
+            new InlineKeyboardButton(BotonClima) { CallbackData = CallbackClima },
+            new InlineKeyboardButton(BotonGasofa) { CallbackData = CallbackElegirCarburante }
+        ];
 
         /// <summary>
         /// Fila de salida del flujo de gasofa. Al no haber fila de acceso directo, es lo único
@@ -325,60 +302,82 @@ namespace WeatherTelegramBot.Services
         private static InlineKeyboardButton[] ConstruirFilaMenu() =>
             [new InlineKeyboardButton(BotonMenu) { CallbackData = CallbackMenu }];
 
-        /// <summary>Teclado del parte del clima: la predicción y el acceso directo.</summary>
+        /// <summary>
+        /// Teclado del parte del tiempo: el cambio de pueblo y el salto a la gasofa. El botón
+        /// de clima desaparece porque el clima ya está en pantalla: volver a consultarlo solo
+        /// volvería a tirar el dado y a salir otro pueblo. El pueblo viaja en el callback del
+        /// botón de cambiar, para poder pedir uno distinto del que se está viendo.
+        /// </summary>
         private static InlineKeyboardMarkup TecladoClima(Pueblo pueblo) =>
-            TecladoAviso(BotonPrediccion, $"{CallbackPrediccion}|{pueblo.CodIne}", pueblo);
-
-        internal static InlineKeyboardMarkup TecladoAviso(
-            string etiquetaBoton,
-            string callbackData,
-            Pueblo pueblo) =>
             new(
             [
-                [new InlineKeyboardButton(etiquetaBoton) { CallbackData = callbackData }],
-                ConstruirFilaPrincipal(pueblo.CodIne)
+                [
+                    new InlineKeyboardButton(BotonCambiarPueblo) { CallbackData = $"{CallbackCambiarPueblo}|{pueblo.CodIne}" },
+                    new InlineKeyboardButton(BotonGasofa) { CallbackData = CallbackElegirCarburante }
+                ]
             ]);
 
-        internal static InlineKeyboardButton[] ConstruirFilaNavegacion(
-            Func<int, string> callbackParaPagina,
-            int pagina,
-            int totalPaginas)
+internal async Task<string> ObtenerTiempoAsync(Pueblo pueblo, CancellationToken cancellationToken)
         {
-            var navegacion = new List<InlineKeyboardButton>();
+            var sb = new StringBuilder();
+            await AnotarTiempoAsync(sb, pueblo, cancellationToken);
+            await AnotarPrediccionAsync(sb, pueblo, cancellationToken);
 
-            if (pagina > 0)
-                navegacion.Add(new InlineKeyboardButton("◀️ A") { CallbackData = callbackParaPagina(pagina - 1) });
-
-            navegacion.Add(new InlineKeyboardButton($"{pagina + 1}/{totalPaginas}")
-            {
-                CallbackData = $"noop|{pagina + 1}/{totalPaginas}"
-            });
-
-            if (pagina < totalPaginas - 1)
-                navegacion.Add(new InlineKeyboardButton("B ▶️") { CallbackData = callbackParaPagina(pagina + 1) });
-
-            return [.. navegacion];
+            return sb.ToString();
         }
 
-        internal async Task<string> ObtenerTiempoAsync(
-            string codProvincia,
-            string codIne,
-            CancellationToken cancellationToken)
+        /// <summary>
+        /// La parte de hoy: estado, temperaturas, viento y lluvia. Es lo único que se pinta si
+        /// el MITECO no contesta, por eso no aborta el mensaje entero.
+        /// </summary>
+        private async Task AnotarTiempoAsync(StringBuilder sb, Pueblo pueblo, CancellationToken cancellationToken)
         {
-            var clima = await _weatherService.ObtenerTiempoPorMunicipioAsync(codProvincia, codIne, cancellationToken);
+            var clima = await _weatherService.ObtenerTiempoPorMunicipioAsync(pueblo.CodProvincia, pueblo.CodIne, cancellationToken);
 
             if (clima?.Municipio is null || clima.Temperaturas is null || clima.EstadoCielo is null)
-                return "⚠️ No se pudo obtener la información del clima en este momento.";
+            {
+                sb.AppendLine($"⚠️ No se pudo obtener la información del clima de {pueblo.NombreConProvincia} en este momento.");
+                return;
+            }
 
-            var sb = new StringBuilder();
             sb.AppendLine($"{EmojiCielo(clima.EstadoCielo.Descripcion)} **El tiempo en {clima.Municipio.Nombre}** ({clima.Municipio.NombreProvincia})");
             sb.AppendLine();
             sb.AppendLine($"• Estado: {clima.EstadoCielo.Descripcion}");
             sb.AppendLine($"• Actual: {clima.TemperaturaActual}°C | Mín: {clima.Temperaturas.Minima}°C | Máx: {clima.Temperaturas.Maxima}°C");
             sb.AppendLine($"• Humedad: {clima.Humedad}% | Viento: {clima.Viento} km/h");
             sb.AppendLine($"• Precipitación: {clima.Precipitacion} mm");
+        }
 
-            return sb.ToString();
+        /// <summary>
+        /// La semana, un día por bloque con el icono junto al nombre del día y los datos debajo.
+        /// Hoy no se repite: sus temperaturas ya están en la parte de arriba. Si el MITECO no
+        /// publica predicción, el parte del clima sigue valiendo y no se avisa de nada.
+        /// </summary>
+        private async Task AnotarPrediccionAsync(StringBuilder sb, Pueblo pueblo, CancellationToken cancellationToken)
+        {
+            var prediccion = await _prediccionService.ObtenerPrediccionAsync(
+                pueblo.CodProvincia, pueblo.CodIne, cancellationToken);
+
+            var dias = prediccion?.Dias.Skip(1).ToArray() ?? [];
+            if (dias.Length == 0)
+                return;
+
+            sb.AppendLine();
+            sb.AppendLine(TituloPrediccion);
+
+            foreach (var dia in dias)
+            {
+                sb.AppendLine();
+                sb.Append(EtiquetaDia(dia));
+            }
+
+            // Con dos o más días mojados la semana ya no da ventana: el aviso va al final,
+            // separado de los bloques, para que se lea como conclusión y no como otro día.
+            if (dias.Count(DiaMojado) >= MinimosDiasMojados)
+            {
+                sb.AppendLine();
+                sb.AppendLine(ConsejoLavarCoche);
+            }
         }
 
         /// <summary>
@@ -413,49 +412,9 @@ namespace WeatherTelegramBot.Services
             return "🌤️";
         }
 
-        /// <summary>Encabezado del mensaje de predicción.</summary>
+        /// <summary>Encabezado del bloque de predicción, dentro del parte del tiempo.</summary>
         private static string TituloPrediccion =>
             "🗓️ **PREDICCIÓN SEMANAL**";
-
-        /// <summary>
-        /// Mensaje de la predicción semanal, en su propia pantalla: un día por bloque, con el
-        /// icono junto al nombre del día y los datos debajo. Va separado del parte del clima
-        /// porque son dos consultas distintas y así el botón de atrás va a donde toca.
-        /// </summary>
-        /// <param name="pueblo">
-        /// El mismo pueblo que sale en el parte del clima, que viaja en el callback: si la
-        /// predicción saliera de Alcalá y el clima de otro sitio, el botón de "volver" rompería.
-        /// </param>
-        internal async Task<string> ObtenerPrediccionAsync(Pueblo pueblo, CancellationToken cancellationToken)
-        {
-            var prediccion = await _prediccionService.ObtenerPrediccionAsync(
-                pueblo.CodProvincia, pueblo.CodIne, cancellationToken);
-
-            if (prediccion is null || prediccion.Dias.Count == 0)
-                return $"⚠️ No se pudo obtener la predicción para {pueblo.NombreConProvincia} en este momento.";
-
-            var dias = prediccion.Dias.Skip(1).ToArray();
-
-            var sb = new StringBuilder();
-            sb.AppendLine(TituloPrediccion);
-            sb.AppendLine($"en {Escapar(pueblo.NombreConProvincia)}");
-
-            foreach (var dia in dias)
-            {
-                sb.AppendLine();
-                sb.Append(EtiquetaDia(dia));
-            }
-
-            // Con dos o más días mojados la semana ya no da ventana: el aviso va al final,
-            // separado de los bloques, para que se lea como conclusión y no como otro día.
-            if (dias.Count(DiaMojado) >= MinimosDiasMojados)
-            {
-                sb.AppendLine();
-                sb.AppendLine(ConsejoLavarCoche);
-            }
-
-            return sb.ToString();
-        }
 
         /// <summary>Umbral de probabilidad a partir del cual el día cuenta como mojado.</summary>
         private const double UmbralLluvia = 60;
@@ -527,28 +486,30 @@ namespace WeatherTelegramBot.Services
             "Te paso las gasolineras más baratas del municipio, ordenadas de más barata a más cara.";
 
         /// <summary>
-        /// Teclado de la pregunta de carburante. Es la primera pantalla del flujo de gasofa, así
-        /// que lleva la salida al menú en lugar de la fila de acceso directo: aquí no tiene
-        /// sentido ofrecer el clima o cambiar de pueblo.
+        /// Teclado de la pregunta de carburante: solo los dos botones, sin salida al menú. Todavía
+        /// no se ha entrado en el flujo de gasofa, así que volver atrás no tiene sentido: o se
+        /// elige un combustible o no hay nada que mostrar.
         /// </summary>
         internal static InlineKeyboardMarkup TecladoCarburante() =>
             new(
             [
                 [new InlineKeyboardButton(TipoCarburante.Gasolina95.Boton()) { CallbackData = $"{CallbackGasolineras}|{TipoCarburante.Gasolina95.Token()}" }],
-                [new InlineKeyboardButton(TipoCarburante.GasoleoA.Boton()) { CallbackData = $"{CallbackGasolineras}|{TipoCarburante.GasoleoA.Token()}" }],
-                ConstruirFilaMenu()
+                [new InlineKeyboardButton(TipoCarburante.GasoleoA.Boton()) { CallbackData = $"{CallbackGasolineras}|{TipoCarburante.GasoleoA.Token()}" }]
             ]);
 
         internal static InlineKeyboardMarkup TecladoInicio() =>
-            new(ConstruirFilaPrincipal(null));
+            new(ConstruirFilaPrincipal());
 
         /// <summary>
         /// Gasolineras cerca del pueblo tocado por el dado. El pueblo llega como parámetro y no
-        /// se tira aquí porque al paginar tiene que ser el mismo de la primera página.
+        /// se tira aquí porque tiene que ser el mismo al cambiar de carburante o de municipio.
+        /// Solo se enseñan las <see cref="GasolinerasPorPagina"/> primeras, que ya vienen
+        /// ordenadas de más barata a más cara, y todas en un bloque: una línea por estación con
+        /// el nombre, el precio y el enlace al mapa. Cabe de sobra en un solo mensaje y así el
+        /// usuario compara de un vistazo sin ir paginando.
         /// </summary>
         internal async Task<(string Texto, InlineKeyboardMarkup Teclado)> ConstruirTecladoGasolinerasAsync(
             Pueblo pueblo,
-            int pagina,
             TipoCarburante carburante,
             CancellationToken cancellationToken)
         {
@@ -562,53 +523,38 @@ namespace WeatherTelegramBot.Services
 
             if (gasolineras.Count == 0)
                 return ($"⛽ No hay gasolineras con precio de {carburante.Nombre()} en {pueblo.NombreConProvincia}.",
-                        new InlineKeyboardMarkup(FilasOpciones(pueblo, pagina, carburante)));
-
-            int totalPaginas = (int)Math.Ceiling(gasolineras.Count / (double)GasolinerasPorPagina);
-            pagina = Math.Clamp(pagina, 0, totalPaginas - 1);
+                        new InlineKeyboardMarkup(FilasOpciones(pueblo, carburante)));
 
             var sb = new StringBuilder();
-            sb.AppendLine($"⛽ <b>Gasolineras {EscaparHtml(pueblo.NombreConProvincia)}</b>");
-            sb.AppendLine(carburante.Titulo());
+            sb.AppendLine($"{carburante.Emoji()} <b>{carburante.Encabezado()} {EscaparHtml(pueblo.NombreConProvincia)}</b>");
 
-            var paginaActual = gasolineras
-                .Skip(pagina * GasolinerasPorPagina)
-                .Take(GasolinerasPorPagina);
+            var mostradas = gasolineras.Take(GasolinerasPorPagina).ToArray();
 
-            int posicion = pagina * GasolinerasPorPagina;
-            foreach (var gasolinera in paginaActual)
+            for (int i = 0; i < mostradas.Length; i++)
             {
-                posicion++;
-                sb.AppendLine($"{posicion}. <b>{EscaparHtml(gasolinera.Nombre)}</b> — <b>{FormatoPrecio(gasolinera.Precio)}</b>");
-                sb.AppendLine($"   {EnlaceMapa(gasolinera)}");
+                var gasolinera = mostradas[i];
+                sb.AppendLine($"{i + 1}. <b>{EscaparHtml(gasolinera.Nombre)}</b> — <b>{FormatoPrecio(gasolinera.Precio)}</b> — {EnlaceMapa(gasolinera)}");
             }
 
-            var filas = new List<InlineKeyboardButton[]>();
-            if (totalPaginas > 1)
-            {
-                filas.Add(ConstruirFilaNavegacion(
-                    p => $"{CallbackGasolinerasPagina}|{pueblo.CodIne}|{p}|{carburante.Token()}",
-                    pagina,
-                    totalPaginas));
-            }
-
-            filas.AddRange(FilasOpciones(pueblo, pagina, carburante));
-
-            return (sb.ToString(), new InlineKeyboardMarkup(filas));
+            return (sb.ToString(), new InlineKeyboardMarkup(FilasOpciones(pueblo, carburante)));
         }
 
         /// <summary>
         /// La dirección se muestra como enlace a Google Maps. Se busca por coordenadas y no
         /// por la dirección textual porque las del feed vienen sin número en muchos casos y
-        /// el mapa acabaría en la calle equivocada. El formato de URL es el oficial de Google
-        /// Maps y abre la app en el móvil en lugar del navegador.
+        /// el mapa acabaría en la calle equivocada. El zoom fija la vista a nivel de calle,
+        /// que es lo que sirve para encontrar una gasolinera.
         /// </summary>
         private static string EnlaceMapa(Gasolinera gasolinera)
         {
             string coordenadas = $"{gasolinera.Latitud.ToString(CultureInfo.InvariantCulture)}," +
                                  $"{gasolinera.Longitud.ToString(CultureInfo.InvariantCulture)}";
 
-            string url = $"https://maps.google.com/?q={coordenadas}";
+            // URL de la API de Maps, no una búsqueda a pelo: "maps.google.com/?q=lat,lon" abre
+            // el buscador con el rótulo "Find local business...", mientras que el endpoint de
+            // /maps/search con api=1 va directo al punto. Los "and" van escapados porque la URL
+            // se mete en un atributo href y Telegram no interpreta HTML completo.
+            string url = $"https://www.google.com/maps/search/?api=1&amp;query={coordenadas}&amp;zoom=17";
 
             // Sin dirección no hay línea que enseñar: mejor un enlace vacío que un underline
             // sin destino, así que se cae al rótulo de la estación.
@@ -627,18 +573,19 @@ namespace WeatherTelegramBot.Services
             texto.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;");
 
         /// <summary>
-        /// Botones de debajo del listado de gasolineras: cambiar de carburante y volver al
-        /// menú. Son los únicos del flujo de gasofa, que se cierra aquí: no se ofrece ni el
-        /// clima ni el cambio de pueblo, que son consultas distintas. El carburante viaja en el
-        /// callback porque el bot es stateless: el botón invierte el valor en lugar de preguntar.
+        /// Botones de debajo del listado de gasolineras: cambiar de carburante, cambiar de
+        /// municipio y volver al menú. El cambio de pueblo solo aparece aquí porque es la única
+        /// pantalla con un pueblo de referencia: en el menú todavía no se ha tirado el dado.
+        /// Carburante y pueblo viajan en el callback porque el bot es stateless: los botones
+        /// intercambian el valor en lugar de preguntar, dejando el resto del listado intacto.
         /// </summary>
         private static List<InlineKeyboardButton[]> FilasOpciones(
             Pueblo pueblo,
-            int pagina,
             TipoCarburante carburante) =>
         [
             [
-                new InlineKeyboardButton(BotonCambiarCarburante) { CallbackData = $"{CallbackGasolinerasCarburante}|{pueblo.CodIne}|{pagina}|{carburante.Token()}" }
+                new InlineKeyboardButton(BotonCambiarCarburante) { CallbackData = $"{CallbackGasolinerasCarburante}|{pueblo.CodIne}|{carburante.Token()}" },
+                new InlineKeyboardButton(BotonCambiarPueblo) { CallbackData = $"{CallbackGasolinerasPueblo}|{pueblo.CodIne}|{carburante.Token()}" }
             ],
             ConstruirFilaMenu()
         ];

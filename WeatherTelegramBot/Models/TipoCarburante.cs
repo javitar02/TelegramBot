@@ -35,13 +35,20 @@ namespace WeatherTelegramBot.Models
         };
 
         /// <summary>
-        /// Nombre corto para la cabecera del listado, que solo lleva el tipo: allí la
-        /// graduación estorba ("Diesel", "Gasolina").
+        /// Encabezado del listado: lo que anuncia el carburante de los precios que van debajo.
+        /// Lleva la palabra "precios" porque es eso lo que se enseña, no el combustible en sí.
         /// </summary>
-        public static string Titulo(this TipoCarburante tipo) => tipo switch
+        public static string Encabezado(this TipoCarburante tipo) => tipo switch
         {
-            TipoCarburante.GasoleoA => "Diesel",
-            _ => "Gasolina"
+            TipoCarburante.GasoleoA => "Precios Diesel",
+            _ => "Precios Gasolina"
+        };
+
+        /// <summary>Emoji del carburante, el mismo que lleva su botón.</summary>
+        public static string Emoji(this TipoCarburante tipo) => tipo switch
+        {
+            TipoCarburante.GasoleoA => "🛢️",
+            _ => "⛽"
         };
 
         /// <summary>
