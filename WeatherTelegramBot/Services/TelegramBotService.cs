@@ -126,6 +126,14 @@ namespace WeatherTelegramBot.Services
         /// <summary>Mensaje de cierre del repostaje, con el botón de vuelta al menú.</summary>
         private const string RepostajeFinalizado = "\U0001F6E1 *Repostaje Finalizado. Gracias por confiar en Gasofas Torrejón S.A*";
 
+        /// <summary>
+        /// Cierre que se manda tras la opción del robo: la gasofa se queda sin Existencias, así que
+        /// en vez de la despedida de rigor se pide disculpa por las molestias.
+        /// </summary>
+        private const string RepostajeSinGasofa =
+            "\U0001F6E1 *Nos hemos quedao sin come y sin gasofa. Las gracias al cabesa y al culebra. "
+            + "Gracias por confiar en Gasofas... y disculpen las molestias*";
+
         private const string PieSiempreHecho =
             "*\"SIEMPRE LE PONGO 20€ PORQUE TAMBIÉN ANDO EN BORRIQUITA\"*\n\n"
             + "\U0001FACF Campano I de San Agustin\n\n"
@@ -386,7 +394,8 @@ namespace WeatherTelegramBot.Services
                     else if (indice == IndiceYoLoGrabo)
                         await EnviarImagenRepostajeAsync(chatId, messageId, PieYoLoGrabo, cancellationToken, ImagenYoLoGrabo);
                     else if (indice == IndiceCulebra)
-                        await EnviarImagenRepostajeAsync(chatId, messageId, PieCulebra, cancellationToken, ImagenCulebra, ImagenCabeza);
+                        await EnviarFotosRepostajeAsync(chatId, messageId, PieCulebra, RepostajeSinGasofa,
+                            cancellationToken, [ImagenCulebra, ImagenCabeza]);
 
                     break;
                 }
@@ -705,7 +714,17 @@ internal async Task<string> ObtenerTiempoAsync(Pueblo pueblo, CancellationToken 
             int messageId,
             string pie,
             CancellationToken cancellationToken,
-            params string[] imagenes)
+            params string[] imagenes) =>
+            await EnviarFotosRepostajeAsync(chatId, messageId, pie, RepostajeFinalizado, cancellationToken, imagenes);
+
+        /// <summary>El envío en sí, con el cierre ya resuelto.</summary>
+        private async Task EnviarFotosRepostajeAsync(
+            long chatId,
+            int messageId,
+            string pie,
+            string cierre,
+            CancellationToken cancellationToken,
+            string[] imagenes)
         {
             // Las imágenes no siempre están desplegadas: se descartan las que falten y, si no
             // queda ninguna, se manda solo el texto en vez de romper la consulta.
@@ -723,7 +742,7 @@ internal async Task<string> ObtenerTiempoAsync(Pueblo pueblo, CancellationToken 
             if (rutas.Length == 0)
             {
                 await ReemplazarMensaje(chatId, messageId, pie, TecladoMenu(), cancellationToken);
-                await EnviarRepostajeFinalizadoAsync(chatId, cancellationToken);
+                await EnviarCierreRepostajeAsync(chatId, cierre, cancellationToken);
                 return;
             }
 
@@ -781,14 +800,17 @@ internal async Task<string> ObtenerTiempoAsync(Pueblo pueblo, CancellationToken 
                 cancellationToken: cancellationToken
             );
 
-            await EnviarRepostajeFinalizadoAsync(chatId, cancellationToken);
+            await EnviarCierreRepostajeAsync(chatId, cierre, cancellationToken);
         }
 
-        /// <summary>Cierre del repostaje, con el botón de vuelta al menú de bienvenida.</summary>
-        private Task EnviarRepostajeFinalizadoAsync(long chatId, CancellationToken cancellationToken) =>
+        /// <summary>
+        /// Cierre del repostaje, con el botón de vuelta al menú de bienvenida. El texto es
+        /// parametrizado porque la opción del robo se despide con otro mensaje.
+        /// </summary>
+        private Task EnviarCierreRepostajeAsync(long chatId, string cierre, CancellationToken cancellationToken) =>
             _botClient.SendMessage(
                 chatId: chatId,
-                text: RepostajeFinalizado,
+                text: cierre,
                 parseMode: ParseMode.Markdown,
                 replyMarkup: TecladoMenu(),
                 cancellationToken: cancellationToken
