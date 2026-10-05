@@ -132,7 +132,7 @@ namespace WeatherTelegramBot.Services
         /// </summary>
         private const string RepostajeSinGasofa =
             "\U0001F6E1 *Nos hemos quedao sin come y sin gasofa. Las gracias al cabesa y al culebra. "
-            + "Gracias por confiar en Gasofas... y disculpen las molestias*";
+            + "Gracias por confiar en Gasofas Torrejón y disculpen las molestias*";
 
         private const string PieSiempreHecho =
             "*\"SIEMPRE LE PONGO 20€ PORQUE TAMBIÉN ANDO EN BORRIQUITA\"*\n\n"
