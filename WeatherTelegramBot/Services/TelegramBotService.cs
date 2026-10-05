@@ -77,7 +77,8 @@ namespace WeatherTelegramBot.Services
         /// <summary>
         /// Cantidades que se ofrecen al repostar. Van en un array y no en un diccionario porque
         /// el callbackData solo lleva el índice: Telegram lo limita a 64 bytes y los rótulos son
-        /// largos. Lo que haga cada una todavía no está escrito, así que aquí solo hay el texto.
+        /// largos. De la destino de cada una se ocupa el switch de
+        /// <see cref="CallbackRepostarElegir"/>.
         /// </summary>
         private static readonly string[] OpcionesReposto =
         [
@@ -88,22 +89,31 @@ namespace WeatherTelegramBot.Services
         ];
 
         /// <summary>
-        /// Posición en <see cref="OpcionesReposto"/> de la opción que responde con una imagen.
-        /// Al ir por posición, reordenar el array cambia también lo que hace el botón.
+        /// Posiciones en <see cref="OpcionesReposto"/> de las opciones que responden con una
+        /// imagen. Al ir por posición, reordenar el array cambia también lo que hace el botón.
         /// </summary>
         private const int IndiceNoLlennes = 1;
+
+        private const int IndicePagaTu = 3;
 
         /// <summary>Carpeta del proyecto donde están las imágenes del repostaje.</summary>
         private const string CarpetaImagenes = "img";
 
         private const string ImagenNoLlennes = "noLlenesDefinitiva.png";
 
+        private const string ImagenPagaTu = "pagaTu.jpg";
+
         /// <summary>Mensaje de cierre del repostaje, con el botón de vuelta al menú.</summary>
         private const string RepostajeFinalizado = "\U0001F6E1 *Repostaje Finalizado*";
 
         private const string PieNoLlennes =
-            "*QUE NO LLENES QUE NO SUBE COÑO*\n\n\U0001F451 Rufino I de Portugal\n\n"
+            "*QUE NO LLENES QUE NO SUBA COÑO*\n\n\U0001F451 Rufino I de Portugal\n\n"
             + "\"Estas fueron las sabias palabras del maestro Moreno Pacheco antes de la catástrofe de las gasofas. ¿Ha elegido usted una sabia decisión? Solo el tiempo dirá...\"";
+
+        private const string PiePagaTu =
+            "*Victolomeo Grill, Rey de los Obreros* 🥇\n\n"
+            + "Sabía decisión. Como decía el gran Victolomeo, \"que pague la tarjeta de la empresa que yo siempre me lo desgravo cojones\"";
+
 
         // En los custom format de .NET la coma es separador de millares, no decimal:
         // hay que pedir la cultura española y usar F1/F2/F3 para obtener "3,4" y "1,799".
@@ -312,10 +322,16 @@ namespace WeatherTelegramBot.Services
 
                 case CallbackRepostarElegir:
                 {
-                    // Cada opción tiene su propio destino; solo está escrita la del "llenaso
-                    // gordo". Las demás reconocen el callback y dejan la pantalla como está.
-                    if (int.TryParse(Parte(1), out int indice) && indice == IndiceNoLlennes)
-                        await EnviarNoLlennesAsync(chatId, messageId, cancellationToken);
+                    // Cada opción tiene su propio destino; solo están escritas la del "llenaso
+                    // gordo" y la de "paga tú", que son las que devuelven una imagen. Las demás
+                    // reconocen el callback y dejan la pantalla como está.
+                    if (!int.TryParse(Parte(1), out int indice))
+                        break;
+
+                    if (indice == IndiceNoLlennes)
+                        await EnviarImagenRepostajeAsync(chatId, messageId, ImagenNoLlennes, PieNoLlennes, cancellationToken);
+                    else if (indice == IndicePagaTu)
+                        await EnviarImagenRepostajeAsync(chatId, messageId, ImagenPagaTu, PiePagaTu, cancellationToken);
 
                     break;
                 }
@@ -620,36 +636,35 @@ internal async Task<string> ObtenerTiempoAsync(Pueblo pueblo, CancellationToken 
             ]);
 
         /// <summary>
-        /// La respuesta al "llenaso gordo": la foto con el texto debajo. Telegram no deja editar
-        /// un texto y convertirlo en imagen, así que la pantalla de opciones se borra y la foto
-        /// ocupa su lugar.
+        /// La respuesta a las opciones que devuelven una imagen: la foto con su texto debajo.
+        /// Telegram no deja editar un texto y convertirlo en imagen, así que la pantalla de
+        /// opciones se borra y la foto ocupa su lugar.
         /// </summary>
-        private async Task EnviarNoLlennesAsync(long chatId, int messageId, CancellationToken cancellationToken)
+        private async Task EnviarImagenRepostajeAsync(
+            long chatId,
+            int messageId,
+            string imagen,
+            string pie,
+            CancellationToken cancellationToken)
         {
-            string ruta = Path.Combine(_entorno.ContentRootPath, CarpetaImagenes, ImagenNoLlennes);
+            string ruta = Path.Combine(_entorno.ContentRootPath, CarpetaImagenes, imagen);
 
             // La imagen no siempre está desplegada, así que si falta se manda solo
             // el texto en vez de romper la consulta.
             if (!File.Exists(ruta))
             {
                 _logger.LogWarning("No se encuentra la imagen {Ruta} del repostaje", ruta);
-                await ReemplazarMensaje(chatId, messageId, PieNoLlennes, TecladoMenu(), cancellationToken);
-                await _botClient.SendMessage(
-                    chatId: chatId,
-                    text: RepostajeFinalizado,
-                    parseMode: ParseMode.Markdown,
-                    replyMarkup: TecladoMenu(),
-                    cancellationToken: cancellationToken
-                );
+                await ReemplazarMensaje(chatId, messageId, pie, TecladoMenu(), cancellationToken);
+                await EnviarRepostajeFinalizadoAsync(chatId, cancellationToken);
                 return;
             }
 
-            await using Stream imagen = File.OpenRead(ruta);
+            await using Stream contenido = File.OpenRead(ruta);
 
             await _botClient.SendPhoto(
                 chatId: chatId,
-                photo: new InputFileStream(imagen, ImagenNoLlennes),
-                caption: PieNoLlennes,
+                photo: new InputFileStream(contenido, imagen),
+                caption: pie,
                 parseMode: ParseMode.Markdown,
                 cancellationToken: cancellationToken
             );
@@ -660,14 +675,18 @@ internal async Task<string> ObtenerTiempoAsync(Pueblo pueblo, CancellationToken 
                 cancellationToken: cancellationToken
             );
 
-            await _botClient.SendMessage(
+            await EnviarRepostajeFinalizadoAsync(chatId, cancellationToken);
+        }
+
+        /// <summary>Cierre del repostaje, con el botón de vuelta al menú de bienvenida.</summary>
+        private Task EnviarRepostajeFinalizadoAsync(long chatId, CancellationToken cancellationToken) =>
+            _botClient.SendMessage(
                 chatId: chatId,
                 text: RepostajeFinalizado,
                 parseMode: ParseMode.Markdown,
                 replyMarkup: TecladoMenu(),
                 cancellationToken: cancellationToken
             );
-        }
 
         /// <summary>
         /// Gasolineras cerca del pueblo tocado por el dado. El pueblo llega como parámetro y no
