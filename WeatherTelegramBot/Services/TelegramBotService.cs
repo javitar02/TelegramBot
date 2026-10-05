@@ -551,8 +551,6 @@ internal async Task<string> ObtenerTiempoAsync(Pueblo pueblo, CancellationToken 
 
             if (dia.Viento is { } viento)
                 sb.AppendLine($"• Viento: {Formato(viento, 0)} km/h");
-            if (dia.RachaMax is { } racha)
-                sb.AppendLine($"• Racha máxima: {Formato(racha, 0)} km/h");
 
             return sb.ToString();
         }
@@ -604,7 +602,7 @@ internal async Task<string> ObtenerTiempoAsync(Pueblo pueblo, CancellationToken 
         /// </summary>
         internal static string PreguntaReposto =>
             "⛽ **Repostar**\n\n" +
-            "Dime cuánto le vas a poner al coche y te digo cuántos litros te entran:";
+            "Elige entre una de estas cuatro opciones:";
 
         /// <summary>Las cuatro opciones, una por fila.</summary>
         private static InlineKeyboardMarkup TecladoReposto() =>
