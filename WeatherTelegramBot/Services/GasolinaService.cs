@@ -27,8 +27,9 @@ namespace WeatherTelegramBot.Services
 
         /// <summary>
         /// Una entrada por provincia. Con una sola entrada, alternar entre Alcalá (Sevilla) y
-        /// Guarromán (Jaén) la invalidaría en cada pulsación y obligaría a bajarse la provincia
-        /// entera otra vez: son varios megas de stations cada media hora.
+        /// los pueblos de Jaén (Guarromán y Lopera) la invalidaría en cada pulsación y
+        /// obligaría a bajarse la provincia entera otra vez: son varios megas de estaciones
+        /// cada media hora.
         /// </summary>
         private readonly Dictionary<string, CacheEstaciones> _cache = new(StringComparer.Ordinal);
 

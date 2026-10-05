@@ -23,9 +23,10 @@ namespace WeatherTelegramBot.Services
     }
 
     /// <summary>
-    /// El bot da servicio en Alcalá, pero por lo pedido, la mitad de las veces que se consulta
-    /// el clima o los precios de la gasolina el parte sale de otro pueblo. Guarromán es el
-    /// clásico del chiste; para sumar más basta con meter su INE en la lista.
+    /// Los pueblos por los que rota el bot. El orden del array es el de la rotación: al entrar
+    /// en el clima se empieza por el primero y cada pulsación del botón de cambiar pueblo
+    /// avanza uno, volviendo a dar la vuelta por el último. Guarromán es el clásico del
+    /// chiste; para sumar o quitar uno basta con tocar el array.
     /// </summary>
     internal static class Pueblos
     {
@@ -39,49 +40,57 @@ namespace WeatherTelegramBot.Services
             MunicipioAlcala.IdMunicipio);
 
         /// <summary>
-        /// El INE abreviado a cinco dígitos es el que espera la URL de el-tiempo.net. Las
-        /// coordenadas son el centroide del término municipal que publica esa misma API, el
-        /// mismo criterio con el que se calcularon las de Alcalá. El IdMunicipio es el del
-        /// feed de carburantes del MITECO.
+        /// La rotación, en el orden en que se van mostrando. El INE abreviado a cinco dígitos
+        /// es el que espera la URL de el-tiempo.net. Las coordenadas son el centroide del
+        /// término municipal que publica esa misma API, el mismo criterio con el que se
+        /// calcularon las de Alcalá. El IdMunicipio es el del feed de carburantes del MITECO.
         /// </summary>
-        private static readonly Pueblo[] Alternos =
+        public static readonly IReadOnlyList<Pueblo> Todos =
         [
             new("Guarromán", "Jaén", "23", "23039", 38.18148567, -3.68678524, "3533"),
+            new("Lopera", "Jaén", "23", "23056", 37.94392635, -4.21432714, "3550"),
+            Alcala,
         ];
 
-        public static readonly IReadOnlyList<Pueblo> Todos = [Alcala, .. Alternos];
+        /// <summary>El pueblo por el que arranca la rotación.</summary>
+        public static Pueblo Inicial => Todos[0];
 
-        /// <summary>
-        /// Tirada del dado, mitad y mitad. Se usa Next(2) en lugar de NextDouble para no
-        /// depender de la precisión del flotante en el borde del 50%.
-        /// </summary>
-        public static bool Toca() => Random.Shared.Next(2) == 0;
-
-        /// <summary>El pueblo de esta tirada: un alterno la mitad de las veces.</summary>
-        public static Pueblo Elegir() => Toca() ? Alternos[Random.Shared.Next(Alternos.Length)] : Alcala;
-
-        /// <summary>
-        /// El pueblo al que pertenece un INE. Sirve para que la página 2 no vuelva a tirar el
-        /// dado: si el listado salió de Guarromán, la página 2 tiene que seguir siendo de
-        /// Guarromán. Un INE desconocido cae en Alcalá.
-        /// </summary>
-        public static Pueblo PorIne(string codIne) =>
-            Todos.FirstOrDefault(p => p.CodIne == codIne) is { } encontrado && encontrado != default
-                ? encontrado
-                : Alcala;
-
-        /// <summary>
-        /// Un pueblo que no sea el indicado, para el botón de cambiar de pueblo: si saliera
-        /// el mismo, el botón parecería estropeado. Si el INE recibido no está en la lista no
-        /// hay ninguno que excluir, así que vale cualquiera.
-        /// </summary>
-        public static Pueblo Otro(string codIne)
+        /// <summary>Posición de un INE en la rotación, o -1 si no está en la lista.</summary>
+        private static int IndiceDe(string codIne)
         {
-            var candidatos = Todos.Where(p => p.CodIne != codIne).ToArray();
+            for (int i = 0; i < Todos.Count; i++)
+            {
+                if (Todos[i].CodIne == codIne)
+                    return i;
+            }
 
-            return candidatos.Length == 0
-                ? Elegir()
-                : candidatos[Random.Shared.Next(candidatos.Length)];
+            return -1;
+        }
+
+        /// <summary>
+        /// El pueblo al que pertenece un INE. Sirve para que los botones que no cambian de
+        /// pueblo (cambiar de carburante, volver al clima) saquen el parte del mismo sitio
+        /// que ya está en pantalla. Un INE desconocido cae en el primero de la rotación.
+        /// </summary>
+        public static Pueblo PorIne(string codIne)
+        {
+            int indice = IndiceDe(codIne);
+
+            return indice < 0 ? Inicial : Todos[indice];
+        }
+
+        /// <summary>
+        /// El siguiente de la rotación para el botón de cambiar pueblo, dando la vuelta al
+        /// último. Como el bot es stateless no hay contador: el pueblo en el que se está solo
+        /// se conoce por el INE que viaja en el callback, así que el siguiente se deduce de ahí.
+        /// Un INE desconocido se resuelve en el primero, y por tanto avanza al segundo, para
+        /// que el botón nunca se quede en el pueblo que ya se está viendo.
+        /// </summary>
+        public static Pueblo Siguiente(string codIne)
+        {
+            int indice = IndiceDe(codIne);
+
+            return Todos[(indice < 0 ? 0 : indice + 1) % Todos.Count];
         }
     }
 }

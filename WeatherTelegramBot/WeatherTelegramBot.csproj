@@ -13,4 +13,12 @@
     <PackageReference Include="Telegram.Bot" Version="22.10.3.1" />
   </ItemGroup>
 
+  <!--
+    Las imágenes del repostaje se leen del disco al mandar el mensaje, así que tienen que
+    estar junto al ejecutable, no solo en el proyecto.
+  -->
+  <ItemGroup>
+    <Content Include="img/**" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>
