@@ -86,33 +86,81 @@ namespace WeatherTelegramBot.Services
             "Llenaso gordo",
             "Sinco Euritos",
             "Paga tú que a mí me da la risa",
+            "Que me atienda la rubia que está en allí dentro",
+            "No Whatsapp solo Gasofa",
         ];
 
         /// <summary>
         /// Posiciones en <see cref="OpcionesReposto"/> de las opciones que responden con una
         /// imagen. Al ir por posición, reordenar el array cambia también lo que hace el botón.
         /// </summary>
+        private const int IndiceSiempreHecho = 0;
+
         private const int IndiceNoLlennes = 1;
 
+        private const int IndiceSincoEuritos = 2;
+
         private const int IndicePagaTu = 3;
+
+        private const int IndiceYoLoGrabo = 4;
+
+        private const int IndiceCulebra = 5;
 
         /// <summary>Carpeta del proyecto donde están las imágenes del repostaje.</summary>
         private const string CarpetaImagenes = "img";
 
+        private const string ImagenSiempreHecho = "siempreHecho.jpg";
+
         private const string ImagenNoLlennes = "noLlenesDefinitiva.png";
+
+        private const string ImagenSincoEuritos = "sincoEuritos.jpg";
 
         private const string ImagenPagaTu = "pagaTu.jpg";
 
+        private const string ImagenYoLoGrabo = "yoLoGrabo.jpg";
+
+        private const string ImagenCulebra = "culebra.png";
+
+        private const string ImagenCabeza = "cabesa.png";
+
         /// <summary>Mensaje de cierre del repostaje, con el botón de vuelta al menú.</summary>
-        private const string RepostajeFinalizado = "\U0001F6E1 *Repostaje Finalizado*";
+        private const string RepostajeFinalizado = "\U0001F6E1 *Repostaje Finalizado. Gracias por confiar en Gasofas Torrejón S.A*";
+
+        private const string PieSiempreHecho =
+            "*\"SIEMPRE LE PONGO 20€ PORQUE TAMBIÉN ANDO EN BORRIQUITA\"*\n\n"
+            + "\U0001FACF Campano I de San Agustin\n\n"
+            + "Decisión inteligente. Estas fueron las declaraciones del astro borriquito. " +
+              "El admin supremo siempre tiene la razón, lo que dice va a MISA";
 
         private const string PieNoLlennes =
-            "*QUE NO LLENES QUE NO SUBA COÑO*\n\n\U0001F451 Rufino I de Portugal\n\n"
-            + "\"Estas fueron las sabias palabras del maestro Moreno Pacheco antes de la catástrofe de las gasofas. ¿Ha elegido usted una sabia decisión? Solo el tiempo dirá...\"";
+            "*\"QUE NO LLENES QUE NO SUBA COÑO\"*\n\n\U0001F451 Rufino I de Portugal\n\n"
+            + "Estas fueron las sabias palabras del maestro Moreno Pacheco antes de la catástrofe de las gasofas. ¿Ha elegido usted una sabia decisión? Solo el tiempo dirá...";
+
+        private const string PieSincoEuritos =
+            "*\"SINCO EURITOS ES SUFICIENTE. LOS 15 RESTANTES A UN ETF CHINITO Y EMERGENTES. EN 15 AÑOS TENDRÁS LIBERTAD FINANCIERA\"*\n\n"
+            + "\U0001F4B0 Yeray I de las Finanzas\n\n"
+            + "La mejor decisión. Copia cada movimiento del maestro Rincón Cardoso y no digas nada. ¿Te jubilarás en 5 años o a los 95? Solo el tiempo dirá...";
 
         private const string PiePagaTu =
-            "*Victolomeo Grill, Rey de los Obreros* 🥇\n\n"
-            + "Sabía decisión. Como decía el gran Victolomeo, \"que pague la tarjeta de la empresa que yo siempre me lo desgravo cojones\"";
+            "*\"PAGA LA TARJETA DE LA EMPRESA Y LUEGO LO DESGRAVO\"*\n\n"
+            + "\u26D1 Victolomeo Grill \"El Dorado\"\n\n"
+            + "Sabia elección. Que pague la empresa que la vida está muy cara coño";
+
+        private const string PieYoLoGrabo =
+            "*\"YO NO SOY RUBIA PERO SI QUIERE TE TRAIGO BENGALAS, DATÁFONO Y PINCHO EN EL VIDEOMARCADOR POR CUÁNTO TE HA SALIDO LA BROMA\"*\n\n"
+            + "\U0001F3A5 Pablo V de las Beatas, I de los Videomarcadores\n\n"
+            + "Es que eres gilipollas. ¿Como coño vas a pinchar en esta opción teniendo parienta macho? "
+            + "Encima el astro beateño te va a pinchar en el videomarcador mientras te soplan 130 pavos. "
+            + "Larga vida al Maestro Cordones";
+
+        private const string PieCulebra =
+            "*\"ILLO CABESA TRINCA LA GASOFA. LA VENDEMOS Y NOS PIRAMOS A BRASIL ARO CULEBRA Y PEGAMOS ER PELOTASO\"*\n\n"
+            + "\U0001F40D Iván Martínez \"El Culebra\"\n"
+            + "\U0001F52B Fco. Javier Torrejon \"El Cabeza\"\n\n"
+            + "Estas fueron las palabras de Iván Martinez alias el Culebra y  Fco. Javier Torrejon alias el Cabesa, " +
+              "los dos atracadores, vestidos de nazareno, robaron en la gasolinera de Montecarmelo, en Alcalá de Guadaira(Sevilla), el pasado Lunes Santo. "
+            + "\n\nLa policía sigue investigando el robo y los tiene en busca y captura por atraco a mano armada." +
+            " \n\nSe desconoce el paradero de ambos y cualquier ayuda ciudadana será bienvenida.";
 
 
         // En los custom format de .NET la coma es separador de millares, no decimal:
@@ -322,16 +370,23 @@ namespace WeatherTelegramBot.Services
 
                 case CallbackRepostarElegir:
                 {
-                    // Cada opción tiene su propio destino; solo están escritas la del "llenaso
-                    // gordo" y la de "paga tú", que son las que devuelven una imagen. Las demás
-                    // reconocen el callback y dejan la pantalla como está.
+                    // Cada opción tiene su propio destino; todas las que tienen índice
+                    // propio devuelven una imagen.
                     if (!int.TryParse(Parte(1), out int indice))
                         break;
 
-                    if (indice == IndiceNoLlennes)
-                        await EnviarImagenRepostajeAsync(chatId, messageId, ImagenNoLlennes, PieNoLlennes, cancellationToken);
+                    if (indice == IndiceSiempreHecho)
+                        await EnviarImagenRepostajeAsync(chatId, messageId, PieSiempreHecho, cancellationToken, ImagenSiempreHecho);
+                    else if (indice == IndiceNoLlennes)
+                        await EnviarImagenRepostajeAsync(chatId, messageId, PieNoLlennes, cancellationToken, ImagenNoLlennes);
+                    else if (indice == IndiceSincoEuritos)
+                        await EnviarImagenRepostajeAsync(chatId, messageId, PieSincoEuritos, cancellationToken, ImagenSincoEuritos);
                     else if (indice == IndicePagaTu)
-                        await EnviarImagenRepostajeAsync(chatId, messageId, ImagenPagaTu, PiePagaTu, cancellationToken);
+                        await EnviarImagenRepostajeAsync(chatId, messageId, PiePagaTu, cancellationToken, ImagenPagaTu);
+                    else if (indice == IndiceYoLoGrabo)
+                        await EnviarImagenRepostajeAsync(chatId, messageId, PieYoLoGrabo, cancellationToken, ImagenYoLoGrabo);
+                    else if (indice == IndiceCulebra)
+                        await EnviarImagenRepostajeAsync(chatId, messageId, PieCulebra, cancellationToken, ImagenCulebra, ImagenCabeza);
 
                     break;
                 }
@@ -618,9 +673,9 @@ internal async Task<string> ObtenerTiempoAsync(Pueblo pueblo, CancellationToken 
         /// </summary>
         internal static string PreguntaReposto =>
             "⛽ **Repostar**\n\n" +
-            "Elige entre una de estas cuatro opciones:";
+            "Bienvenido a Gasofas Torrejón. Elija el repostaje que más desee:";
 
-        /// <summary>Las cuatro opciones, una por fila.</summary>
+        /// <summary>Cada opción del repostaje en su propia fila.</summary>
         private static InlineKeyboardMarkup TecladoReposto() =>
             new([.. OpcionesReposto.Select((opcion, indice) =>
                 new[]
@@ -640,34 +695,85 @@ internal async Task<string> ObtenerTiempoAsync(Pueblo pueblo, CancellationToken 
         /// Telegram no deja editar un texto y convertirlo en imagen, así que la pantalla de
         /// opciones se borra y la foto ocupa su lugar.
         /// </summary>
+        /// <remarks>
+        /// Con más de una imagen se manda un álbum y el pie se queda en la caption de la primera,
+        /// que es lo único que Telegram deja rotular. Las que falten en el disco se descartan,
+        /// así que una imagen sin desplegar no tira la consulta.
+        /// </remarks>
         private async Task EnviarImagenRepostajeAsync(
             long chatId,
             int messageId,
-            string imagen,
             string pie,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            params string[] imagenes)
         {
-            string ruta = Path.Combine(_entorno.ContentRootPath, CarpetaImagenes, imagen);
+            // Las imágenes no siempre están desplegadas: se descartan las que falten y, si no
+            // queda ninguna, se manda solo el texto en vez de romper la consulta.
+            var rutas = imagenes
+                .Select(imagen => (Imagen: imagen, Ruta: Path.Combine(_entorno.ContentRootPath, CarpetaImagenes, imagen)))
+                .Where(x => File.Exists(x.Ruta))
+                .ToArray();
 
-            // La imagen no siempre está desplegada, así que si falta se manda solo
-            // el texto en vez de romper la consulta.
-            if (!File.Exists(ruta))
+            foreach (var ausente in imagenes.Except(rutas.Select(x => x.Imagen)))
+                _logger.LogWarning(
+                    "No se encuentra la imagen {Imagen} del repostaje en {Carpeta}",
+                    ausente,
+                    CarpetaImagenes);
+
+            if (rutas.Length == 0)
             {
-                _logger.LogWarning("No se encuentra la imagen {Ruta} del repostaje", ruta);
                 await ReemplazarMensaje(chatId, messageId, pie, TecladoMenu(), cancellationToken);
                 await EnviarRepostajeFinalizadoAsync(chatId, cancellationToken);
                 return;
             }
 
-            await using Stream contenido = File.OpenRead(ruta);
+            if (rutas.Length == 1)
+            {
+                await using Stream contenido = File.OpenRead(rutas[0].Ruta);
 
-            await _botClient.SendPhoto(
-                chatId: chatId,
-                photo: new InputFileStream(contenido, imagen),
-                caption: pie,
-                parseMode: ParseMode.Markdown,
-                cancellationToken: cancellationToken
-            );
+                await _botClient.SendPhoto(
+                    chatId: chatId,
+                    photo: new InputFileStream(contenido, rutas[0].Imagen),
+                    caption: pie,
+                    parseMode: ParseMode.Markdown,
+                    cancellationToken: cancellationToken
+                );
+            }
+            else
+            {
+                var medios = new List<InputMediaPhoto>(rutas.Length);
+                var flujos = new List<Stream>(rutas.Length);
+
+                try
+                {
+                    foreach (var (imagen, ruta) in rutas)
+                    {
+                        Stream flujo = File.OpenRead(ruta);
+                        flujos.Add(flujo);
+
+                        // El pie va en la primera foto del álbum: es la única con caption.
+                        bool esLaPrimera = imagen == rutas[0].Imagen;
+
+                        medios.Add(new InputMediaPhoto
+                        {
+                            Media = new InputFileStream(flujo, imagen),
+                            Caption = esLaPrimera ? pie : null,
+                            ParseMode = esLaPrimera ? ParseMode.Markdown : ParseMode.None
+                        });
+                    }
+
+                    await _botClient.SendMediaGroup(
+                        chatId: chatId,
+                        media: medios,
+                        cancellationToken: cancellationToken
+                    );
+                }
+                finally
+                {
+                    foreach (Stream flujo in flujos)
+                        await flujo.DisposeAsync();
+                }
+            }
 
             await _botClient.DeleteMessage(
                 chatId: chatId,
