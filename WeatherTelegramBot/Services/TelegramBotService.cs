@@ -911,18 +911,11 @@ internal async Task<string> ObtenerTiempoAsync(Pueblo pueblo, CancellationToken 
         internal static string Formato(double valor, int decimales) => valor.ToString("F" + decimales, CultureEspanol);
 
         /// <summary>
-        /// 1 euro son 166,386 pesetas desde 1998, así que la conversión es fija y no hace
-        /// falta ir a buscar un tipo de cambio. El MITECO manda el precio en euros por litro y
-        /// el bot lo enseña siempre en pesetas.
-        /// </summary>
-        internal const double PesetasPorEuro = 166.386;
-
-        /// <summary>
         /// El precio se escribe sin la barra de "€/L": Telegram se come lo que va detrás de una
         /// barra como si fuera un comando y el mensaje llegaba con el comando colgando.
         /// </summary>
         internal static string FormatoPrecio(double eurosPorLitro) =>
-            $"{Formato(eurosPorLitro * PesetasPorEuro, 2)} ptas por litro";
+            $"{Formato(eurosPorLitro, 2)} € por litro";
 
         /// <summary>
         /// Los rótulos vienen del MITECO y pueden llevar acentos, puntos o barras bajas
